@@ -1035,8 +1035,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Overheal Decay
       let newHealth = state.health;
       if (newHealth > state.maxHealth) {
-          // Decay rate: 5 HP per second (delta is in seconds)
-          newHealth = Math.max(state.maxHealth, newHealth - 5 * delta);
+          // Decay rate: 1 HP per 5 seconds = 0.2 HP per second
+          newHealth = Math.max(state.maxHealth, newHealth - 0.2 * delta);
       }
       
       return { timeOfDay: newTime, mobs: newMobs, health: newHealth };

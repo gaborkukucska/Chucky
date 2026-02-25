@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Physics, usePlane, useBox, useCylinder, useSphere, useHeightfield } from '@react-three/cannon';
-import { Sky, MeshDistortMaterial, Stars, Cloud, Text, Float, Icosahedron, Edges } from '@react-three/drei';
+import { Sky, MeshDistortMaterial, Stars, Cloud, Text, Float, Icosahedron, Edges, Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore, getRiverX, getRiverWidth, calculateTerrainHeight, MAP_SIZE } from '../store';
 import { audioService } from '../services/audio';
@@ -1035,10 +1035,52 @@ const Woodchuck = () => {
     const isNight = timeOfDay > 0.45 && timeOfDay < 0.95;
     const isGhostLightActive = isNight && (Date.now() - lastChompTime < 30000);
 
+    // Ghost Light Animation
+    const lightRef = useRef<THREE.PointLight>(null);
+    useFrame((state) => {
+        if (lightRef.current && isGhostLightActive) {
+            const time = state.clock.elapsedTime;
+            // Sparkle/Flicker
+            const flicker = Math.sin(time * 15) * 0.3 + Math.cos(time * 27) * 0.3;
+            lightRef.current.intensity = 4 + flicker; 
+            
+            // Hover motion
+            lightRef.current.position.y = 3.5 + Math.sin(time * 2) * 0.2;
+            lightRef.current.position.x = Math.sin(time * 1.3) * 0.2;
+            lightRef.current.position.z = Math.cos(time * 1.7) * 0.2;
+        }
+    });
+
     return (
         <group ref={ref as any}>
             {isGhostLightActive && (
-                <pointLight position={[0, 2, 0]} intensity={2} distance={15} color="#FFD700" castShadow />
+                <group position={[0, 0, 0]}>
+                    <pointLight 
+                        ref={lightRef}
+                        position={[0, 3.5, 0]} 
+                        intensity={4} 
+                        distance={20} 
+                        decay={2}
+                        color="#FFD700" 
+                        castShadow 
+                        shadow-bias={-0.0001}
+                    />
+                    {/* Visual Orb */}
+                    <mesh position={[0, 3.5, 0]}>
+                        <sphereGeometry args={[0.15, 8, 8]} />
+                        <meshBasicMaterial color="#FFFFE0" transparent opacity={0.6} />
+                    </mesh>
+                    {/* Sparkles */}
+                    <Sparkles 
+                        count={15} 
+                        scale={1.5} 
+                        size={4} 
+                        speed={0.4} 
+                        opacity={0.8} 
+                        color="#FFFF00" 
+                        position={[0, 3.5, 0]} 
+                    />
+                </group>
             )}
             {/* Powerup Visuals - Attached to player position but NOT rotation */}
             {isTreePowerupActive && (
@@ -1235,7 +1277,7 @@ const Grass = () => {
     // Generate instances
     const instances = useMemo(() => {
         const temp = [];
-        const count = 20000; // Increased from 5000
+        const count = 40000; // Doubled again
         const dummy = new THREE.Object3D();
         
         for (let i = 0; i < count; i++) {
