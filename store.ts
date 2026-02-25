@@ -38,6 +38,8 @@ interface GameState {
   // Combo System
   combo: ComboState;
 
+  lastChompTime: number;
+
   // Powerups
   treesChomped: number[];
   isTreePowerupActive: boolean;
@@ -287,6 +289,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   // Powerups
+  lastChompTime: 0,
   treesChomped: [],
   isTreePowerupActive: false,
   treePowerupEndTime: 0,
@@ -733,6 +736,10 @@ export const useGameStore = create<GameState>((set, get) => ({
 
         // Tree Powerup Logic
         const now = Date.now();
+        
+        // Update Last Chomp Time for Ghost Light
+        const updates: Partial<GameState> = { lastChompTime: now };
+        
         // 30 seconds window for 3 trees (eased from 10s)
         let newTreesChomped = [...state.treesChomped.filter(t => now - t <= 30000), now];
         let isTreePowerupActive = state.isTreePowerupActive;
@@ -769,7 +776,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           hasSeenTreePowerupPopup,
           notification,
           isPaused,
-          lastPauseStartTime
+          lastPauseStartTime,
+          ...updates
         };
     }
 

@@ -823,11 +823,17 @@ const Woodchuck = () => {
                 
                 // Ramp up turn speed
                 // Start slow (0.005) and ramp to max (0.025) over time
-                if (turnSpeed.current < 0.025) {
-                    turnSpeed.current += 0.0005; 
+                // User requested faster sync: Increase max speed and acceleration
+                if (turnSpeed.current < 0.1) {
+                    turnSpeed.current += 0.005; 
                 }
                 
-                currentRotationY.current += diff * turnSpeed.current;
+                // Direct rotation if difference is small to snap
+                if (Math.abs(diff) < 0.1) {
+                    currentRotationY.current = targetAngle;
+                } else {
+                    currentRotationY.current += diff * turnSpeed.current;
+                }
             } else {
                 // Reset turn speed when stopped
                 turnSpeed.current = 0.005;
@@ -963,6 +969,9 @@ const Woodchuck = () => {
              const riverW = getRiverWidth(z);
              const flowSpeed = 80 / Math.max(1, riverW); 
              
+             // High damping in water
+             api.linearDamping.set(0.9);
+             
              // Buoyancy Logic
              const depth = WATER_LEVEL - y;
              
@@ -998,6 +1007,9 @@ const Woodchuck = () => {
              // Walking
              const walkSpeed = 25;
              
+             // Low damping on land (less floaty)
+             api.linearDamping.set(0.1);
+             
              if (y < terrainH - 5) {
                  // Safety net
                  api.position.set(x, terrainH + 2, z);
@@ -1018,8 +1030,16 @@ const Woodchuck = () => {
         }
     });
 
+    const lastChompTime = useGameStore(state => state.lastChompTime);
+    const timeOfDay = useGameStore(state => state.timeOfDay);
+    const isNight = timeOfDay > 0.45 && timeOfDay < 0.95;
+    const isGhostLightActive = isNight && (Date.now() - lastChompTime < 30000);
+
     return (
         <group ref={ref as any}>
+            {isGhostLightActive && (
+                <pointLight position={[0, 2, 0]} intensity={2} distance={15} color="#FFD700" castShadow />
+            )}
             {/* Powerup Visuals - Attached to player position but NOT rotation */}
             {isTreePowerupActive && (
                 <group>
@@ -1215,23 +1235,34 @@ const Grass = () => {
     // Generate instances
     const instances = useMemo(() => {
         const temp = [];
-        const count = 5000; // Number of grass blades
+        const count = 20000; // Increased from 5000
         const dummy = new THREE.Object3D();
         
         for (let i = 0; i < count; i++) {
             // Random position within map bounds
             const x = (Math.random() - 0.5) * MAP_SIZE;
             const z = (Math.random() - 0.5) * MAP_SIZE;
+            
+            // Patchy logic: Use simple clustering
+            // 30% chance to be in a "patch"
+            // Or use a simple noise approximation: sin(x*0.1) * sin(z*0.1) > 0
+            const noise = Math.sin(x * 0.1) * Math.cos(z * 0.1) + Math.sin(x * 0.3 + z * 0.2);
+            if (noise < -0.5) continue; // Skip some areas for patchiness
+            
             const y = calculateTerrainHeight(x, z);
             
             // Only on land (above water level)
             if (y > WATER_LEVEL + 0.2) {
-                dummy.position.set(x, y + 0.5, z); // +0.5 because plane geometry is centered? No, usually centered.
-                // Adjust y so bottom is at ground. Plane height 1.
+                dummy.position.set(x, y + 0.5, z); 
                 dummy.position.y = y + 0.5; 
                 
                 dummy.rotation.y = Math.random() * Math.PI;
-                dummy.scale.setScalar(0.5 + Math.random() * 0.5);
+                
+                // Varying lengths
+                const scaleY = 0.5 + Math.random() * 1.0; // 0.5 to 1.5 height
+                const scaleXZ = 0.5 + Math.random() * 0.5;
+                dummy.scale.set(scaleXZ, scaleY, scaleXZ);
+                
                 dummy.updateMatrix();
                 temp.push(dummy.matrix.clone());
             }
