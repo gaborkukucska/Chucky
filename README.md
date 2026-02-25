@@ -22,8 +22,8 @@ Welcome to **Woodchuck Dam Builder 3000**, a 3D simulation game where you play a
 
 1.  **Clone the repository** (or download the source code):
     ```bash
-    git clone https://github.com/gaborkukucska/Chucky.git
-    cd Chucky
+    git clone https://github.com/yourusername/woodchuck-dam-builder.git
+    cd woodchuck-dam-builder
     ```
 
 2.  **Install dependencies**:
@@ -33,12 +33,28 @@ Welcome to **Woodchuck Dam Builder 3000**, a 3D simulation game where you play a
 
 3.  **Start the development server**:
     ```bash
+    npm start
+    # or
     npm run dev
     ```
 
 4.  **Play!**
-    - **Local**: Open your browser and navigate to the URL shown in the terminal (usually `http://localhost:5173`).
-    - **Network (Mobile)**: Look for the "Network" URL in the terminal output (e.g., `http://192.168.1.5:5173`). Open this URL on your phone's browser to play with touch controls.
+    - **Local**: Open your browser and navigate to the URL shown in the terminal (usually `http://localhost:3000`).
+    - **Network (Mobile)**: Look for the "Network" URL in the terminal output (e.g., `http://192.168.1.5:3000`). Open this URL on your phone's browser to play with touch controls.
+
+## 📱 Mobile / Termux Troubleshooting
+
+If you are running this directly on your phone using Termux:
+
+1.  Ensure you have `nodejs` and `git` installed:
+    ```bash
+    pkg install nodejs git
+    ```
+2.  If the server starts but you can't access it, try using `127.0.0.1:3000` instead of `localhost`.
+3.  If file changes aren't detected, try running with polling:
+    ```bash
+    CHOKIDAR_USEPOLLING=true npm start
+    ```
 
 ## 🎮 Controls
 
