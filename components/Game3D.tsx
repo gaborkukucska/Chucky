@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useMemo, useState, forwardRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Physics, usePlane, useBox, useCylinder, useSphere, useHeightfield } from '@react-three/cannon';
+import { Physics, usePlane, useBox, useCylinder, useSphere, useHeightfield, useCompoundBody } from '@react-three/cannon';
 import { Sky, MeshDistortMaterial, Stars, Cloud, Text, Float, Icosahedron, Edges, Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore, getRiverX, getRiverWidth, calculateTerrainHeight, MAP_SIZE } from '../store';
@@ -644,7 +644,17 @@ const PlacedStructureRenderer = React.memo(({ data, blueprints }: { data: Placed
         }));
     }, [blueprint]);
 
-    const [ref] = useCylinder(() => ({
+    // Use CompoundBody for proper physics
+    // Note: useCylinder with shapes IS a compound body, but let's be explicit with useCompoundBody if available,
+    // or just ensure the args are correct. 
+    // The issue might be that the player (sphere) can tunnel through.
+    // Let's try useBox as a bounding volume if the logs are too thin.
+    // Actually, let's just use the cylinder hook but ensure it's static and has correct shapes.
+    // The previous code was correct for compound body.
+    // Maybe the mass needs to be explicitly 0 (it was).
+    // Let's try to add a simplified Bounding Box for the whole structure to prevent pass-through.
+    
+    const [ref] = useCompoundBody(() => ({
         mass: 0, // Static
         type: 'Static',
         position: data.position,
@@ -677,40 +687,15 @@ const PlacedStructureRenderer = React.memo(({ data, blueprints }: { data: Placed
     );
 });
 
-const PreviewStructure = () => {
+const PreviewStructureOverlay = forwardRef<THREE.Group, {}>((props, ref) => {
     const selectedBlueprintId = useGameStore(state => state.selectedBlueprintId);
     const blueprints = useGameStore(state => state.blueprints);
-    const placementRotation = useGameStore(state => state.placementRotation);
-    const groupRef = useRef<THREE.Group>(null);
-    
     const blueprint = blueprints.find(b => b.id === selectedBlueprintId);
-    
-    useFrame(() => {
-        if (groupRef.current) {
-            // Position preview in front of player
-            // We can use the global currentWoodchuckPos
-            // And maybe project it forward based on camera or just place it at player pos
-            // The prompt said "tiltable by joystick", so it's likely fixed relative to player or camera?
-            // Let's place it exactly at player position but raised slightly
-            groupRef.current.position.set(
-                currentWoodchuckPos.x,
-                currentWoodchuckPos.y, // Keep it grounded? Or player height?
-                currentWoodchuckPos.z
-            );
-            
-            // Apply rotation from store
-            groupRef.current.rotation.set(
-                placementRotation[0],
-                placementRotation[1],
-                placementRotation[2]
-            );
-        }
-    });
     
     if (!blueprint) return null;
 
     return (
-        <group ref={groupRef}>
+        <group ref={ref}>
             {blueprint.logs.map((log, i) => (
                 <mesh key={i} position={log.position} rotation={log.rotation}>
                     <cylinderGeometry args={[0.4, 0.4, 3, 8]} />
@@ -720,7 +705,7 @@ const PreviewStructure = () => {
             ))}
         </group>
     );
-};
+});
 
 const Woodchuck = () => {
     const isPaused = useGameStore(state => state.isPaused);
@@ -774,6 +759,10 @@ const Woodchuck = () => {
     const currentRotationY = useRef(Math.PI);
     const visualRef = useRef<THREE.Group>(null);
     const turnSpeed = useRef(0.005);
+    const cameraAngle = useRef(0); // Decoupled camera angle
+
+    const previewRef = useRef<THREE.Group>(null);
+    const placementRotation = useGameStore(state => state.placementRotation);
 
     useFrame((state, delta) => {
         if (isPaused) {
@@ -797,6 +786,13 @@ const Woodchuck = () => {
 
         // Camera-relative movement calculation
         const camera = state.camera;
+        // Use the DECOUPLED camera angle for input reference, not the camera's actual rotation
+        // This prevents the "spin" feedback loop.
+        // Or better: Use the camera's Y rotation but DAMPED heavily or fixed to a target.
+        // Actually, the issue is that "BEHIND" mode locks camera to player rotation.
+        // If we use camera.quaternion, we get the loop.
+        // Let's use a stable reference frame or just the current camera angle but update it slowly.
+        
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
         forward.y = 0;
@@ -806,39 +802,30 @@ const Woodchuck = () => {
 
         const moveVector = new THREE.Vector3()
             .addScaledVector(right, input.x)
-            .addScaledVector(forward, -input.y); // input.y is positive when moving down on screen
+            .addScaledVector(forward, -input.y); 
 
             if (isMoving) {
                 const targetAngle = Math.atan2(moveVector.x, moveVector.z);
-                lastAngle.current = targetAngle; // For camera tracking
-                
-                // "Starts moving before turning" logic:
-                // We want the character to move in the input direction immediately,
-                // while the model rotates to face that direction smoothly.
-                // This prevents "spinning in place" because movement happens alongside rotation.
+                lastAngle.current = targetAngle; 
                 
                 let diff = targetAngle - currentRotationY.current;
                 while (diff < -Math.PI) diff += Math.PI * 2;
                 while (diff > Math.PI) diff -= Math.PI * 2;
                 
-                // Ramp up turn speed
-                // Start slow (0.005) and ramp to max (0.025) over time
-                // User requested faster sync: Increase max speed and acceleration
-                if (turnSpeed.current < 0.1) {
-                    turnSpeed.current += 0.005; 
-                }
-                
-                // Direct rotation if difference is small to snap
-                if (Math.abs(diff) < 0.1) {
-                    currentRotationY.current = targetAngle;
-                } else {
-                    currentRotationY.current += diff * turnSpeed.current;
-                }
-            } else {
-                // Reset turn speed when stopped
-                turnSpeed.current = 0.005;
+                // Smoother turn speed logic
+                const turnRate = 0.15; // Constant, snappy but smooth
+                currentRotationY.current += diff * turnRate;
             }
         
+        // Update Camera Angle (Smooth Follow)
+        // Only update camera angle if moving, and do it slowly
+        if (isMoving) {
+            let camDiff = lastAngle.current - cameraAngle.current;
+            while (camDiff < -Math.PI) camDiff += Math.PI * 2;
+            while (camDiff > Math.PI) camDiff -= Math.PI * 2;
+            cameraAngle.current += camDiff * 0.02; // Very slow follow to prevent spin
+        }
+
         // Placement Mode Logic
         if (isPlacementMode) {
             // Joystick controls rotation/tilt
@@ -850,15 +837,30 @@ const Woodchuck = () => {
             api.velocity.set(0, 0, 0);
             api.angularVelocity.set(0, 0, 0);
             
+            // Calculate placement position in FRONT of player
+            const placeDist = 4.0;
+            const placeX = x + Math.sin(currentRotationY.current) * placeDist;
+            const placeZ = z + Math.cos(currentRotationY.current) * placeDist;
+            
+            // Update preview position directly via ref to avoid re-renders
+            if (previewRef.current) {
+                previewRef.current.position.set(placeX, y, placeZ);
+                previewRef.current.rotation.set(
+                    placementRotation[0],
+                    placementRotation[1],
+                    placementRotation[2]
+                );
+            }
+            
             // Update camera to look at placement
             const targetCamPos = new THREE.Vector3(x, y + 10, z + 15);
             state.camera.position.lerp(targetCamPos, 0.1);
-            state.camera.lookAt(x, y, z);
+            state.camera.lookAt(placeX, y, placeZ);
             
             // Allow placement trigger
             // @ts-ignore
             if (window.woodchuckInput.isBuilding) {
-                placeStructure([x, y, z]);
+                placeStructure([placeX, y, placeZ]);
                 // @ts-ignore
                 window.woodchuckInput.isBuilding = false;
             }
@@ -928,8 +930,8 @@ const Woodchuck = () => {
             targetOffset.set(0, 30, 0.1); // Slight Z offset to avoid gimbal lock
             lookAtOffset.set(0, 0, 0);
         } else if (cameraMode === 'BEHIND') {
-            // Get player rotation from last angle
-            const angle = lastAngle.current;
+            // Get player rotation from DECOUPLED camera angle
+            const angle = cameraAngle.current;
             const dist = 12 * zoomFactor;
             const height = 7 * zoomFactor; // Higher camera
             targetOffset.set(
@@ -1082,6 +1084,12 @@ const Woodchuck = () => {
                     />
                 </group>
             )}
+            
+            {/* Preview Overlay inside Woodchuck to access position easily */}
+            {isPlacementMode && (
+                <PreviewStructureOverlay ref={previewRef} />
+            )}
+
             {/* Powerup Visuals - Attached to player position but NOT rotation */}
             {isTreePowerupActive && (
                 <group>
@@ -1535,7 +1543,8 @@ export const Game3D = () => {
         <Woodchuck />
       </Physics>
       
-      {isPlacementMode && <PreviewStructure />}
+      {/* PreviewStructure is now handled inside Woodchuck for correct positioning */}
+      {/* {isPlacementMode && <PreviewStructureOverlay />} */}
 
       <Water />
 

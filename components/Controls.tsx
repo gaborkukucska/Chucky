@@ -192,8 +192,8 @@ export const Controls = () => {
             </button>
         </div>
 
-        {/* Single Joystick - Bottom Left */}
-        <div className="absolute bottom-16 left-8 z-50">
+        {/* Single Joystick - Bottom Middle */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50">
             <Joystick 
                 onMove={updateInput} 
                 knobColor="bg-gradient-to-b from-amber-400 to-orange-600"

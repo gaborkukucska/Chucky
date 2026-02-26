@@ -303,7 +303,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-        <div className="w-full h-screen bg-sky-300 relative overflow-hidden select-none">
+        <div className="w-full h-full bg-sky-300 relative overflow-hidden select-none">
             <ScoreUI />
             <NotificationUI />
             <PowerupTimerUI />
