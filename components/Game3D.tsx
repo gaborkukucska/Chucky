@@ -699,8 +699,8 @@ const PreviewStructureOverlay = forwardRef<THREE.Group, {}>((props, ref) => {
             {blueprint.logs.map((log, i) => (
                 <mesh key={i} position={log.position} rotation={log.rotation}>
                     <cylinderGeometry args={[0.4, 0.4, 3, 8]} />
-                    <meshBasicMaterial color="#4FC3F7" transparent opacity={0.4} depthWrite={false} />
-                    <Edges color="yellow" threshold={15} />
+                    <meshBasicMaterial color="#00FFFF" transparent opacity={0.6} depthTest={false} depthWrite={false} />
+                    <Edges color="white" threshold={15} />
                 </mesh>
             ))}
         </group>
@@ -715,12 +715,12 @@ const Woodchuck = () => {
     const logPowerupEndTime = useGameStore(state => state.logPowerupEndTime);
     
     const [ref, api] = useSphere(() => ({ 
-        mass: 50, 
+        mass: 100, 
         position: [0, 10, 20], 
         args: [0.6], 
         fixedRotation: true, 
-        linearDamping: 0.5, 
-        friction: 0.0,
+        linearDamping: 0.95, 
+        friction: 2.0,
         userData: { tag: 'player' },
         onCollide: (e) => {
             if (e.body && e.body.userData && (e.body.userData as any).tag === 'structure') {
@@ -842,7 +842,9 @@ const Woodchuck = () => {
         // Update Camera Angle (Strict Follow as requested)
         // User said: "you changed the 'behind' option which should always stay behind chucky"
         // So we revert to using lastAngle (player's facing direction) for camera.
-        cameraAngle.current = lastAngle.current; 
+        // BUT, lastAngle is based on MOVEMENT vector. If we stop moving, it stays.
+        // If we want it to follow the MODEL's facing direction (which smooths out), use currentRotationY.
+        cameraAngle.current = currentRotationY.current; 
 
         // Placement Mode Logic
         if (isPlacementMode) {
@@ -855,21 +857,26 @@ const Woodchuck = () => {
             api.velocity.set(0, 0, 0);
             api.angularVelocity.set(0, 0, 0);
             
-            // Calculate placement position in FRONT of player
-            // Use currentRotationY to place in front of where the model is facing
-            const placeDist = 6.0; // Increased distance to ensure visibility
-            const placeX = x + Math.sin(currentRotationY.current) * placeDist;
-            const placeZ = z + Math.cos(currentRotationY.current) * placeDist;
+            // Calculate placement position RELATIVE to player
+            const placeDist = 6.0;
+            const offsetX = Math.sin(currentRotationY.current) * placeDist;
+            const offsetZ = Math.cos(currentRotationY.current) * placeDist;
             
-            // Update preview position directly via ref to avoid re-renders
+            // World coordinates for placement
+            const placeX = x + offsetX;
+            const placeZ = z + offsetZ;
+            
+            // Update preview position (Relative to parent group)
             if (previewRef.current) {
-                previewRef.current.position.set(placeX, y, placeZ);
+                // Since Preview is a child of Woodchuck (which is at x,y,z), 
+                // we set position relative to 0,0,0
+                previewRef.current.position.set(offsetX, 1.0, offsetZ);
+                
                 previewRef.current.rotation.set(
                     placementRotation[0],
                     placementRotation[1],
                     placementRotation[2]
                 );
-                // Force update matrix world to ensure it renders in correct spot immediately
                 previewRef.current.updateMatrixWorld();
             }
             
@@ -882,7 +889,7 @@ const Woodchuck = () => {
             // Allow placement trigger
             // @ts-ignore
             if (window.woodchuckInput.isBuilding) {
-                placeStructure([placeX, y, placeZ]);
+                placeStructure([placeX, y + 0.5, placeZ]); // Place slightly higher to avoid clipping
                 // @ts-ignore
                 window.woodchuckInput.isBuilding = false;
             }
@@ -1140,7 +1147,7 @@ const Woodchuck = () => {
                 </group>
             )}
 
-            <group ref={visualRef}>
+            <group ref={visualRef} position={[0, -0.2, 0]}>
                 <mesh castShadow receiveShadow position={[0, -0.2, 0]}>
                     <capsuleGeometry args={[0.5, 0.8, 4, 8]} />
                     <meshStandardMaterial color="#8D6E63" />
