@@ -192,8 +192,8 @@ export const Controls = () => {
             </button>
         </div>
 
-        {/* Single Joystick - Bottom Middle */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50">
+        {/* Single Joystick - Bottom Left */}
+        <div className="absolute bottom-16 left-8 z-50">
             <Joystick 
                 onMove={updateInput} 
                 knobColor="bg-gradient-to-b from-amber-400 to-orange-600"
@@ -202,3 +202,51 @@ export const Controls = () => {
     </>
   );
 };
+
+// Add Keyboard Listeners
+if (typeof window !== 'undefined') {
+    const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false };
+    
+    const updateKeyboardInput = () => {
+        let x = 0;
+        let y = 0;
+        
+        if (keys.w || keys.ArrowUp) y += 1;
+        if (keys.s || keys.ArrowDown) y -= 1;
+        if (keys.a || keys.ArrowLeft) x -= 1;
+        if (keys.d || keys.ArrowRight) x += 1;
+        
+        // Normalize if diagonal
+        if (x !== 0 && y !== 0) {
+            const len = Math.sqrt(x*x + y*y);
+            x /= len;
+            y /= len;
+        }
+        
+        // Only update if joystick is not active (simple priority)
+        // Or just overwrite? Let's overwrite for now, assuming user uses one or the other.
+        // @ts-ignore
+        if (window.woodchuckInput) {
+             // @ts-ignore
+            window.woodchuckInput.x = x;
+             // @ts-ignore
+            window.woodchuckInput.y = y;
+        }
+    };
+
+    window.addEventListener('keydown', (e) => {
+        if (['w','a','s','d','ArrowUp','ArrowLeft','ArrowDown','ArrowRight'].includes(e.key)) {
+            // @ts-ignore
+            keys[e.key] = true;
+            updateKeyboardInput();
+        }
+    });
+    
+    window.addEventListener('keyup', (e) => {
+        if (['w','a','s','d','ArrowUp','ArrowLeft','ArrowDown','ArrowRight'].includes(e.key)) {
+            // @ts-ignore
+            keys[e.key] = false;
+            updateKeyboardInput();
+        }
+    });
+}

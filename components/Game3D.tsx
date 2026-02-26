@@ -66,7 +66,7 @@ const Terrain = () => {
 
 const Water = () => {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, WATER_LEVEL, 0]} receiveShadow>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, WATER_LEVEL, 0]} receiveShadow frustumCulled={false}>
       <planeGeometry args={[MAP_SIZE, MAP_SIZE, 32, 32]} />
       <MeshDistortMaterial 
         color="#00BFFF" 
@@ -931,13 +931,13 @@ const Woodchuck = () => {
             // Get player rotation from last angle
             const angle = lastAngle.current;
             const dist = 12 * zoomFactor;
-            const height = 6 * zoomFactor;
+            const height = 7 * zoomFactor; // Higher camera
             targetOffset.set(
                 -Math.sin(angle) * dist,
                 height,
                 -Math.cos(angle) * dist
             );
-            lookAtOffset.set(0, 2, 0);
+            lookAtOffset.set(0, 4, 0); // Look higher (tilt up)
         } else if (cameraMode === 'CINEMATIC') {
             const time = state.clock.elapsedTime * 0.15;
             const dist = 25 * zoomFactor;
@@ -1058,8 +1058,8 @@ const Woodchuck = () => {
                     <pointLight 
                         ref={lightRef}
                         position={[0, 3.5, 0]} 
-                        intensity={4} 
-                        distance={20} 
+                        intensity={8} 
+                        distance={25} 
                         decay={2}
                         color="#FFD700" 
                         castShadow 
@@ -1068,13 +1068,13 @@ const Woodchuck = () => {
                     {/* Visual Orb */}
                     <mesh position={[0, 3.5, 0]}>
                         <sphereGeometry args={[0.15, 8, 8]} />
-                        <meshBasicMaterial color="#FFFFE0" transparent opacity={0.6} />
+                        <meshBasicMaterial color="#FFFFE0" transparent opacity={0.8} />
                     </mesh>
                     {/* Sparkles */}
                     <Sparkles 
-                        count={15} 
-                        scale={1.5} 
-                        size={4} 
+                        count={40} 
+                        scale={2.5} 
+                        size={6} 
                         speed={0.4} 
                         opacity={0.8} 
                         color="#FFFF00" 
@@ -1088,11 +1088,11 @@ const Woodchuck = () => {
                     {/* Territory Sphere Grid */}
                     <mesh position={[0, 0, 0]}>
                         <sphereGeometry args={[12, 32, 32]} />
-                        <meshBasicMaterial color="#FF4500" wireframe transparent opacity={0.15} />
+                        <meshBasicMaterial color="#FF4500" wireframe transparent opacity={0.15} depthWrite={false} />
                     </mesh>
                     <mesh position={[0, 0, 0]}>
                         <sphereGeometry args={[11.8, 32, 32]} />
-                        <meshBasicMaterial color="#FF4500" transparent opacity={0.05} side={THREE.DoubleSide} />
+                        <meshBasicMaterial color="#FF4500" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
                     </mesh>
                 </group>
             )}
@@ -1101,11 +1101,11 @@ const Woodchuck = () => {
                     {/* Territory Sphere Grid */}
                     <mesh position={[0, 0, 0]}>
                         <sphereGeometry args={[30, 32, 32]} />
-                        <meshBasicMaterial color="#00BFFF" wireframe transparent opacity={0.15} />
+                        <meshBasicMaterial color="#00BFFF" wireframe transparent opacity={0.15} depthWrite={false} />
                     </mesh>
                     <mesh position={[0, 0, 0]}>
                         <sphereGeometry args={[29.8, 32, 32]} />
-                        <meshBasicMaterial color="#00BFFF" transparent opacity={0.05} side={THREE.DoubleSide} />
+                        <meshBasicMaterial color="#00BFFF" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
                     </mesh>
                 </group>
             )}
@@ -1452,7 +1452,7 @@ export const Game3D = () => {
   const food = useGameStore(state => state.food);
 
   return (
-    <Canvas shadows camera={{ position: [0, 10, 20], fov: 60 }}>
+    <Canvas shadows camera={{ position: [0, 10, 20], fov: 75 }}>
       <TimeManager />
       <DestructionManager />
       <Sky 
