@@ -786,12 +786,12 @@ const Woodchuck = () => {
 
         // Camera-relative movement calculation
         const camera = state.camera;
-        // Use the DECOUPLED camera angle for input reference, not the camera's actual rotation
-        // This prevents the "spin" feedback loop.
-        // Or better: Use the camera's Y rotation but DAMPED heavily or fixed to a target.
-        // Actually, the issue is that "BEHIND" mode locks camera to player rotation.
-        // If we use camera.quaternion, we get the loop.
-        // Let's use a stable reference frame or just the current camera angle but update it slowly.
+        
+        // Revert to standard camera-relative movement
+        // The "spin" issue is likely due to the camera rotating WITH the player in BEHIND mode,
+        // causing the "forward" vector to change rapidly as the player turns.
+        // To fix this while keeping BEHIND mode, we need to damp the camera rotation or use a fixed reference for input.
+        // But the user specifically asked to "adjust movement speed ramp ups" and "how it turns when it is in one spot".
         
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
@@ -812,19 +812,37 @@ const Woodchuck = () => {
                 while (diff < -Math.PI) diff += Math.PI * 2;
                 while (diff > Math.PI) diff -= Math.PI * 2;
                 
-                // Smoother turn speed logic
-                const turnRate = 0.15; // Constant, snappy but smooth
-                currentRotationY.current += diff * turnRate;
+                // Improved Turn Logic:
+                // 1. If moving slowly (just starting), turn faster to face direction.
+                // 2. If moving fast, turn slower (momentum).
+                // 3. Deadzone for small inputs is already handled by isMoving check.
+                
+                // Ramp up turn speed based on how long we've been moving?
+                // Or just use a fixed, snappy but smooth speed.
+                // The previous "ramp up" might have been too slow at start.
+                
+                const baseTurnSpeed = 0.1; // Snappy base speed
+                const maxTurnSpeed = 0.3;
+                
+                // Accelerate turn speed if input is held
+                if (turnSpeed.current < maxTurnSpeed) {
+                    turnSpeed.current += 0.01;
+                }
+                
+                // Apply rotation
+                // If difference is large (e.g. 180 turn), we want to turn fast.
+                const turnStep = Math.min(Math.abs(diff), turnSpeed.current);
+                currentRotationY.current += Math.sign(diff) * turnStep;
+                
+            } else {
+                // Reset turn speed when stopped
+                turnSpeed.current = 0.1;
             }
         
-        // Update Camera Angle (Smooth Follow)
-        // Only update camera angle if moving, and do it slowly
-        if (isMoving) {
-            let camDiff = lastAngle.current - cameraAngle.current;
-            while (camDiff < -Math.PI) camDiff += Math.PI * 2;
-            while (camDiff > Math.PI) camDiff -= Math.PI * 2;
-            cameraAngle.current += camDiff * 0.02; // Very slow follow to prevent spin
-        }
+        // Update Camera Angle (Strict Follow as requested)
+        // User said: "you changed the 'behind' option which should always stay behind chucky"
+        // So we revert to using lastAngle (player's facing direction) for camera.
+        cameraAngle.current = lastAngle.current; 
 
         // Placement Mode Logic
         if (isPlacementMode) {
@@ -838,7 +856,8 @@ const Woodchuck = () => {
             api.angularVelocity.set(0, 0, 0);
             
             // Calculate placement position in FRONT of player
-            const placeDist = 4.0;
+            // Use currentRotationY to place in front of where the model is facing
+            const placeDist = 6.0; // Increased distance to ensure visibility
             const placeX = x + Math.sin(currentRotationY.current) * placeDist;
             const placeZ = z + Math.cos(currentRotationY.current) * placeDist;
             
@@ -850,10 +869,13 @@ const Woodchuck = () => {
                     placementRotation[1],
                     placementRotation[2]
                 );
+                // Force update matrix world to ensure it renders in correct spot immediately
+                previewRef.current.updateMatrixWorld();
             }
             
             // Update camera to look at placement
-            const targetCamPos = new THREE.Vector3(x, y + 10, z + 15);
+            // Lift camera higher to see the preview better
+            const targetCamPos = new THREE.Vector3(x, y + 15, z + 20);
             state.camera.position.lerp(targetCamPos, 0.1);
             state.camera.lookAt(placeX, y, placeZ);
             
@@ -930,8 +952,8 @@ const Woodchuck = () => {
             targetOffset.set(0, 30, 0.1); // Slight Z offset to avoid gimbal lock
             lookAtOffset.set(0, 0, 0);
         } else if (cameraMode === 'BEHIND') {
-            // Get player rotation from DECOUPLED camera angle
-            const angle = cameraAngle.current;
+            // Get player rotation from lastAngle (Strict Follow)
+            const angle = lastAngle.current;
             const dist = 12 * zoomFactor;
             const height = 7 * zoomFactor; // Higher camera
             targetOffset.set(
