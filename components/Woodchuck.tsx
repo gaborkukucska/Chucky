@@ -21,8 +21,8 @@ export const Woodchuck = () => {
         position: [0, 10, 20], 
         args: [0.6], 
         fixedRotation: true, 
-        linearDamping: 0.1, // Low damping for movement
-        friction: 0.0, // Low friction to prevent sticking
+        linearDamping: 0.1, 
+        friction: 0.0,
         userData: { tag: 'player' },
         onCollide: (e) => {
             if (e.body && e.body.userData && (e.body.userData as any).tag === 'structure') {
@@ -188,8 +188,13 @@ export const Woodchuck = () => {
 
         // --- Movement Logic ---
         
-        // Water Physics
-        if (y < WATER_LEVEL + 0.5) {
+        // Determine if swimming:
+        // Must be below water level AND not touching the ground (wading)
+        // distToGround approx 0.6 when standing. 
+        // Give some buffer: if distToGround > 0.8, we are floating.
+        const isSwimming = (y < WATER_LEVEL + 0.5) && (distToGround > 0.8);
+
+        if (isSwimming) {
              const riverW = getRiverWidth(z);
              const flowSpeed = 80 / Math.max(1, riverW); 
              
@@ -215,7 +220,7 @@ export const Woodchuck = () => {
                  visualRef.current.rotation.set(-Math.PI / 2, currentRotationY.current, 0);
              }
         } else {
-             // Land Physics
+             // Land Physics (Walking / Wading)
              api.linearDamping.set(0.1); 
              
              const walkSpeed = 25;
@@ -239,7 +244,14 @@ export const Woodchuck = () => {
                      const newVx = THREE.MathUtils.lerp(currentVx, targetVx, delta * acceleration);
                      const newVz = THREE.MathUtils.lerp(currentVz, targetVz, delta * acceleration);
                      
-                     api.velocity.set(newVx, velocity.current[1], newVz);
+                     // If wading (in water but on ground), apply some flow
+                     let flowZ = 0;
+                     if (y < WATER_LEVEL + 0.5) {
+                         const riverW = getRiverWidth(z);
+                         flowZ = (80 / Math.max(1, riverW)) * 0.3; // Reduced flow effect while wading
+                     }
+
+                     api.velocity.set(newVx, velocity.current[1], newVz + flowZ);
                      
                      if (distToGround < 2.0 && velocity.current[1] > -1) {
                          api.applyForce([0, -500, 0], [x, y, z]);
@@ -290,7 +302,8 @@ export const Woodchuck = () => {
 
     return (
         <group>
-            <mesh ref={ref as any} castShadow receiveShadow>
+            {/* Physics Body - HIDDEN VISUALLY */}
+            <mesh ref={ref as any} castShadow receiveShadow visible={false}>
                 <sphereGeometry args={[0.6, 32, 32]} />
                 <meshStandardMaterial color={isTreePowerupActive ? "#FFD700" : "#8D6E63"} />
             </mesh>
