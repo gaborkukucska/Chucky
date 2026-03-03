@@ -1036,10 +1036,10 @@ const Woodchuck = () => {
              }
         } else {
              // Walking on land
-             api.linearDamping.set(0.5); // Moderate damping for control but not "stuck"
+             api.linearDamping.set(0.1); // Low damping to avoid fighting velocity set
              
-             const walkSpeed = 30;
-             const acceleration = 5.0; // Acceleration factor for lerping
+             const walkSpeed = 25;
+             const acceleration = 3.0; // Slower acceleration for less "wild" movement
              
              if (y < terrainH - 5) {
                  // Safety net
@@ -1048,37 +1048,36 @@ const Woodchuck = () => {
              } else {
                  // Apply stronger gravity/downward force when not grounded
                  if (distToGround > 0.5) {
-                     api.applyForce([0, -2500, 0], [x, y, z]); // Stronger gravity
+                     api.applyForce([0, -2000, 0], [x, y, z]); // Stronger gravity
                  }
 
                  if (isMoving) {
-                     // Force-based movement
+                     // Velocity-based movement with Lerp
                      const targetVx = moveVector.x * walkSpeed;
                      const targetVz = moveVector.z * walkSpeed;
                      
                      const currentVx = velocity.current[0];
                      const currentVz = velocity.current[2];
                      
-                     // Calculate difference
-                     const diffVx = targetVx - currentVx;
-                     const diffVz = targetVz - currentVz;
+                     // Lerp velocity for smooth ramp up/down
+                     const newVx = THREE.MathUtils.lerp(currentVx, targetVx, delta * acceleration);
+                     const newVz = THREE.MathUtils.lerp(currentVz, targetVz, delta * acceleration);
                      
-                     // Apply force proportional to difference (P-controller)
-                     const forceMultiplier = 200; // Adjust based on mass (100)
-                     api.applyForce([diffVx * forceMultiplier, 0, diffVz * forceMultiplier], [x, y, z]);
+                     api.velocity.set(newVx, velocity.current[1], newVz);
                      
                      // Downward force to stick to slopes if close to ground
                      if (distToGround < 2.0 && velocity.current[1] > -1) {
-                         api.applyForce([0, -1000, 0], [x, y, z]);
+                         api.applyForce([0, -500, 0], [x, y, z]);
                      }
                  } else {
-                     // Decelerate smoothly using damping (already set to 0.5)
-                     // Or apply counter-force for quicker stop
+                     // Decelerate smoothly
                      const currentVx = velocity.current[0];
                      const currentVz = velocity.current[2];
                      
-                     const stopForce = 100;
-                     api.applyForce([-currentVx * stopForce, 0, -currentVz * stopForce], [x, y, z]);
+                     const newVx = THREE.MathUtils.lerp(currentVx, 0, delta * acceleration * 2);
+                     const newVz = THREE.MathUtils.lerp(currentVz, 0, delta * acceleration * 2);
+                     
+                     api.velocity.set(newVx, velocity.current[1], newVz);
                  }
              }
              
