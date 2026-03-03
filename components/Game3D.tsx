@@ -1035,22 +1035,49 @@ const Woodchuck = () => {
                  visualRef.current.rotation.set(-Math.PI / 2, currentRotationY.current, 0);
              }
         } else {
-             // Walking
-             const walkSpeed = 25;
+             // Walking on land
+             api.linearDamping.set(0.5); // Moderate damping for control but not "stuck"
              
-             // Low damping on land (less floaty)
-             api.linearDamping.set(0.1);
+             const walkSpeed = 30;
+             const acceleration = 5.0; // Acceleration factor for lerping
              
              if (y < terrainH - 5) {
                  // Safety net
                  api.position.set(x, terrainH + 2, z);
                  api.velocity.set(0, 0, 0);
              } else {
+                 // Apply stronger gravity/downward force when not grounded
+                 if (distToGround > 0.5) {
+                     api.applyForce([0, -2500, 0], [x, y, z]); // Stronger gravity
+                 }
+
                  if (isMoving) {
-                     // Move in direction of INPUT (moveVector), not facing
-                     api.velocity.set(moveVector.x * walkSpeed, velocity.current[1], moveVector.z * walkSpeed);
+                     // Smoothly interpolate velocity
+                     const targetVx = moveVector.x * walkSpeed;
+                     const targetVz = moveVector.z * walkSpeed;
+                     
+                     const currentVx = velocity.current[0];
+                     const currentVz = velocity.current[2];
+                     
+                     // Lerp velocity manually
+                     const newVx = THREE.MathUtils.lerp(currentVx, targetVx, delta * acceleration);
+                     const newVz = THREE.MathUtils.lerp(currentVz, targetVz, delta * acceleration);
+                     
+                     api.velocity.set(newVx, velocity.current[1], newVz);
+                     
+                     // Downward force to stick to slopes if close to ground
+                     if (distToGround < 2.0 && velocity.current[1] > -1) {
+                         api.applyForce([0, -1000, 0], [x, y, z]);
+                     }
                  } else {
-                     api.velocity.set(0, velocity.current[1], 0);
+                     // Decelerate smoothly
+                     const currentVx = velocity.current[0];
+                     const currentVz = velocity.current[2];
+                     
+                     const newVx = THREE.MathUtils.lerp(currentVx, 0, delta * acceleration * 2); // Stop faster than start
+                     const newVz = THREE.MathUtils.lerp(currentVz, 0, delta * acceleration * 2);
+                     
+                     api.velocity.set(newVx, velocity.current[1], newVz);
                  }
              }
              

@@ -23,15 +23,21 @@ const PowerupTimerUI = () => {
     return (
         <div className="absolute top-24 left-1/2 transform -translate-x-1/2 flex flex-col gap-2 items-center pointer-events-none z-30 w-full">
             {isTreePowerupActive && (
-                <div className="bg-orange-600/90 text-white px-4 py-1.5 rounded-full font-bold shadow-lg border-2 border-orange-400 animate-pulse flex items-center gap-2 text-sm">
-                    <span className="text-lg">🪓</span>
-                    <span>MEGA CHOMP: {Math.max(0, Math.ceil((treePowerupEndTime - Date.now()) / 1000))}s</span>
+                <div className="bg-black/60 backdrop-blur-md text-white px-4 py-2 rounded-xl border-2 border-orange-500 shadow-lg flex items-center gap-3 min-w-[200px]">
+                    <span className="text-2xl">🪓</span>
+                    <div className="flex flex-col flex-1">
+                        <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">Mega Chomp</span>
+                        <span className="font-mono font-bold text-lg leading-none">{Math.max(0, Math.ceil((treePowerupEndTime - Date.now()) / 1000))}s</span>
+                    </div>
                 </div>
             )}
             {isLogPowerupActive && (
-                <div className="bg-blue-600/90 text-white px-4 py-1.5 rounded-full font-bold shadow-lg border-2 border-blue-400 animate-pulse flex items-center gap-2 text-sm">
-                    <span className="text-lg">🧲</span>
-                    <span>MAGNET: {Math.max(0, Math.ceil((logPowerupEndTime - Date.now()) / 1000))}s</span>
+                <div className="bg-black/60 backdrop-blur-md text-white px-4 py-2 rounded-xl border-2 border-blue-500 shadow-lg flex items-center gap-3 min-w-[200px]">
+                    <span className="text-2xl">🧲</span>
+                    <div className="flex flex-col flex-1">
+                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Magnet</span>
+                        <span className="font-mono font-bold text-lg leading-none">{Math.max(0, Math.ceil((logPowerupEndTime - Date.now()) / 1000))}s</span>
+                    </div>
                 </div>
             )}
         </div>
@@ -93,8 +99,8 @@ const BuildMenu = () => {
     const closeBuildMenu = useGameStore(state => state.closeBuildMenu);
     
     return (
-        <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-6">
-            <h2 className="text-4xl font-black text-white mb-6 tracking-tighter">BLUEPRINTS</h2>
+        <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-6 animate-in fade-in duration-200">
+            <h2 className="text-4xl font-black text-white mb-6 tracking-tighter drop-shadow-lg">BLUEPRINTS</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full max-w-4xl overflow-y-auto max-h-[60vh] p-2">
                 {blueprints.map(bp => (
                     <button 
@@ -105,31 +111,29 @@ const BuildMenu = () => {
                             selectBlueprint(bp.id);
                         }}
                         className={`
-                            relative p-4 rounded-xl border-4 flex flex-col items-center gap-2 transition-all
+                            relative p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all
                             ${!bp.unlocked 
-                                ? 'bg-gray-800 border-gray-700 opacity-50 cursor-not-allowed' 
+                                ? 'bg-gray-900/80 border-gray-700 opacity-60 cursor-not-allowed' 
                                 : woodCount < bp.cost 
                                     ? 'bg-red-900/50 border-red-800 cursor-not-allowed' 
-                                    : 'bg-blue-600 border-blue-400 hover:scale-105 active:scale-95 shadow-lg'}
+                                    : 'bg-black/60 border-amber-500 hover:bg-amber-900/40 hover:scale-105 active:scale-95 shadow-xl'}
                         `}
                     >
                         {!bp.unlocked && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg">
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-2xl z-10">
                                 <span className="text-4xl">🔒</span>
                             </div>
                         )}
-                        <div className="w-16 h-16 bg-black/30 rounded-full flex items-center justify-center mb-2">
+                        <div className="w-16 h-16 bg-black/30 rounded-full flex items-center justify-center mb-2 border border-white/10">
                             <span className="text-3xl">🏗️</span>
                         </div>
-                        <h3 className="text-white font-bold text-lg leading-none text-center">{bp.name}</h3>
-                        <div className="flex items-center gap-1 bg-black/40 px-3 py-1 rounded-full">
-                            <span className="text-sm">🪵</span>
-                            <span className={`font-mono font-bold ${woodCount < bp.cost ? 'text-red-400' : 'text-white'}`}>
-                                {bp.cost}
-                            </span>
+                        <h3 className="text-white font-bold text-lg leading-none text-center mb-1">{bp.name}</h3>
+                        <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold ${woodCount < bp.cost ? 'bg-red-900/50 text-red-200' : 'bg-amber-900/50 text-amber-200'}`}>
+                            <span>🪵</span>
+                            <span className="font-mono">{bp.cost}</span>
                         </div>
                         {!bp.unlocked && bp.unlockScore !== undefined && bp.unlockScore > 0 && (
-                            <div className="text-xs text-amber-400 font-bold mt-1 bg-black/60 px-2 py-0.5 rounded">
+                            <div className="text-[10px] text-amber-400 font-bold mt-2 uppercase tracking-wider">
                                 Need {bp.unlockScore} Pts
                             </div>
                         )}
@@ -138,9 +142,9 @@ const BuildMenu = () => {
             </div>
             <button 
                 onClick={closeBuildMenu}
-                className="mt-8 bg-white text-black font-bold py-3 px-8 rounded-full hover:bg-gray-200"
+                className="mt-8 bg-white text-black font-black py-3 px-10 rounded-full hover:bg-gray-200 shadow-xl transition-transform active:scale-95"
             >
-                CLOSE
+                CLOSE MENU
             </button>
         </div>
     );
@@ -189,23 +193,23 @@ const ComboUI = () => {
     return (
         <div className="absolute top-32 left-4 z-30 flex flex-col items-start pointer-events-none">
             {combo.multiplier > 1 && (
-                <div className="text-4xl font-black text-yellow-400 drop-shadow-[0_2px_0_rgba(0,0,0,1)] italic tracking-tighter transform -rotate-6 animate-bounce mb-1">
+                <div className="text-5xl font-black text-amber-400 drop-shadow-[0_4px_0_rgba(0,0,0,1)] italic tracking-tighter transform -rotate-6 animate-bounce mb-2 ml-2">
                     {combo.multiplier}x
                 </div>
             )}
-            <div className="bg-black/60 backdrop-blur-md p-2 rounded-lg border border-white/20 w-36">
-                <div className="flex justify-between text-white text-[10px] font-bold mb-0.5">
-                    <span>COMBO</span>
-                    <span>{(timeLeft / 1000).toFixed(1)}s</span>
+            <div className="bg-black/60 backdrop-blur-md p-3 rounded-xl border border-white/10 w-40 shadow-lg">
+                <div className="flex justify-between text-white text-[10px] font-bold mb-1 uppercase tracking-wider">
+                    <span>Combo Timer</span>
+                    <span className="font-mono text-amber-400">{(timeLeft / 1000).toFixed(1)}s</span>
                 </div>
-                <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                <div className="w-full h-2 bg-black/50 rounded-full overflow-hidden border border-white/10 mb-1">
                     <div 
-                        className={`h-full transition-all duration-100 ${timeLeft < 2000 ? 'bg-red-500' : 'bg-yellow-400'}`}
+                        className={`h-full transition-all duration-100 ${timeLeft < 2000 ? 'bg-red-500' : 'bg-amber-400'}`}
                         style={{ width: `${progress}%` }}
                     />
                 </div>
-                <div className="text-left text-white/70 text-[8px] mt-0.5">
-                    {combo.multiplier === 1 ? `${combo.logsCollected}/3 to 2x` : `${combo.logsSinceLastLevel}/3 to Next`}
+                <div className="text-left text-white/70 text-[9px] font-medium">
+                    {combo.multiplier === 1 ? `${combo.logsCollected}/3 to Start Multiplier` : `${combo.logsSinceLastLevel}/3 to Extend`}
                 </div>
             </div>
         </div>
@@ -218,10 +222,14 @@ const ScoreUI = () => {
     
     return (
         <div className="absolute top-4 right-4 z-30 flex flex-col items-end pointer-events-none">
-            <div className="bg-black/60 backdrop-blur-md p-2 rounded-xl border border-white/20">
-                <div className="text-amber-400 text-[10px] font-bold uppercase tracking-wider text-right">Score</div>
-                <div className="text-white text-xl font-black text-right">{score.toLocaleString()}</div>
-                <div className="text-white/60 text-[8px] mt-0.5 text-right">Logs: {totalLogs}</div>
+            <div className="bg-black/60 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-xl min-w-[140px]">
+                <div className="text-amber-400 text-[10px] font-bold uppercase tracking-widest text-right mb-0.5">Score</div>
+                <div className="text-white text-3xl font-black text-right leading-none tracking-tight">{score.toLocaleString()}</div>
+                <div className="w-full h-px bg-white/10 my-2"></div>
+                <div className="flex justify-between items-center text-[10px] text-white/60 font-bold uppercase tracking-wider">
+                    <span>Logs</span>
+                    <span className="text-white text-sm">{totalLogs}</span>
+                </div>
             </div>
         </div>
     );
@@ -251,25 +259,26 @@ const NotificationUI = () => {
     };
     
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+        <div className="fixed top-24 inset-x-0 z-50 flex justify-center pointer-events-none">
             <div 
-                className="animate-bounce cursor-pointer pointer-events-auto w-full max-w-xs px-4"
+                className="animate-in slide-in-from-top-4 duration-300 cursor-pointer pointer-events-auto w-full max-w-sm px-4"
                 onClick={handleClick}
             >
-                <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-0.5 rounded-xl shadow-2xl hover:scale-105 transition-transform">
-                    <div className="bg-black/90 backdrop-blur-xl px-4 py-3 rounded-xl flex flex-col items-center text-center">
-                        <div className="text-xl mb-1">
-                            {notification.type === 'unlock' ? '🔓' : notification.type === 'info' ? '⚡' : '🏆'}
-                        </div>
-                        <div className="text-amber-400 font-black text-xs uppercase tracking-widest mb-0.5">
+                <div className="bg-black/80 backdrop-blur-xl p-4 rounded-2xl border border-amber-500/50 shadow-2xl flex items-center gap-4 hover:scale-105 transition-transform">
+                    <div className="text-3xl bg-amber-500/20 p-2 rounded-xl border border-amber-500/30">
+                        {notification.type === 'unlock' ? '🔓' : notification.type === 'info' ? '⚡' : '🏆'}
+                    </div>
+                    <div className="flex-1 text-left">
+                        <div className="text-amber-400 font-black text-xs uppercase tracking-widest mb-1">
                             {notification.title}
                         </div>
-                        <div className="text-white font-bold text-xs leading-tight">
+                        <div className="text-white font-bold text-sm leading-tight">
                             {notification.message}
                         </div>
                         {notification.type === 'unlock' && (
-                            <div className="text-[8px] text-white/50 mt-1 uppercase tracking-wider font-bold">
-                                Tap to Open Menu
+                            <div className="text-[9px] text-white/50 mt-1.5 uppercase tracking-wider font-bold flex items-center gap-1">
+                                <span>Tap to Open Menu</span>
+                                <span className="text-xs">→</span>
                             </div>
                         )}
                     </div>
@@ -303,29 +312,28 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-        <div className="w-full h-full bg-sky-300 relative overflow-hidden select-none">
+        <div className="w-full h-full bg-sky-300 relative overflow-hidden select-none font-sans">
             <ScoreUI />
             <NotificationUI />
             <PowerupTimerUI />
             {phase === 'START' && (
-                <div className="absolute inset-0 z-40 bg-black/60 flex flex-col items-center justify-center text-white p-6">
-                    <h1 className="text-5xl font-black mb-4 tracking-tighter text-amber-500 drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)] text-center leading-tight">
-                        CHUCKY THE<br/>WOODCHUCK
+                <div className="absolute inset-0 z-40 bg-black/80 flex flex-col items-center justify-center text-white p-6 backdrop-blur-sm">
+                    <h1 className="text-6xl md:text-8xl font-black mb-6 tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-amber-400 to-amber-600 drop-shadow-lg text-center leading-none">
+                        CHUCKY<br/>THE<br/>WOODCHUCK
                     </h1>
-                    <div className="max-w-md text-center text-sm mb-8 text-gray-200 space-y-3">
-                        <p className="italic text-base opacity-80">The river is flowing. The dam must be built.</p>
+                    <div className="max-w-md text-center text-sm mb-10 text-gray-300 space-y-4">
+                        <p className="italic text-lg opacity-90 font-serif">The river is flowing. The dam must be built.</p>
                         
-                        <div className="bg-black/40 p-4 rounded-xl border border-white/10 text-left space-y-2 text-xs md:text-sm">
-                            <p>🕹️ <b className="text-amber-400">MOVE:</b> Use the joystick to run and swim.</p>
-                            <p>🪓 <b className="text-amber-400">CHOMP:</b> Bump into trees to fell them.</p>
-                            <p>⚡ <b className="text-amber-400">COMBO:</b> Collect 3 logs in 15s to start a multiplier! Keep going for up to 4x logs!</p>
-                            <p>🏗️ <b className="text-amber-400">BUILD:</b> Open the menu to unlock blueprints. Use the joystick to rotate/tilt before placing.</p>
-                            <p>💥 <b className="text-amber-400">DESTROY:</b> Touch a structure to destroy it and reclaim 80% of the logs.</p>
+                        <div className="bg-white/5 p-6 rounded-2xl border border-white/10 text-left space-y-3 text-sm shadow-xl">
+                            <p className="flex items-center gap-3"><span className="text-2xl">🕹️</span> <span><b className="text-amber-400 uppercase tracking-wide">MOVE</b> with joystick</span></p>
+                            <p className="flex items-center gap-3"><span className="text-2xl">🪓</span> <span><b className="text-amber-400 uppercase tracking-wide">CHOMP</b> trees by bumping them</span></p>
+                            <p className="flex items-center gap-3"><span className="text-2xl">⚡</span> <span><b className="text-amber-400 uppercase tracking-wide">COMBO</b> logs for multipliers</span></p>
+                            <p className="flex items-center gap-3"><span className="text-2xl">🏗️</span> <span><b className="text-amber-400 uppercase tracking-wide">BUILD</b> dams to score big</span></p>
                         </div>
                     </div>
                     <button 
                         onClick={startGame}
-                        className="bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 px-10 rounded-full text-xl transition-transform transform active:scale-95 shadow-xl border-4 border-amber-800"
+                        className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-black py-4 px-12 rounded-full text-2xl transition-all transform hover:scale-105 active:scale-95 shadow-2xl border-4 border-amber-300/20"
                     >
                         START CHOMPING
                     </button>
@@ -333,29 +341,29 @@ export default function App() {
             )}
             
             {phase === 'GAMEOVER' && (
-                <div className="absolute inset-0 z-50 bg-red-900/80 flex flex-col items-center justify-center text-white p-6 animate-in fade-in duration-500">
-                    <h1 className="text-6xl font-black mb-2 tracking-tighter text-black drop-shadow-[0_2px_0_rgba(255,255,255,0.5)]">GAME OVER</h1>
-                    <div className="text-2xl font-bold mb-8 opacity-80">The dam remains unfinished...</div>
+                <div className="absolute inset-0 z-50 bg-red-950/90 flex flex-col items-center justify-center text-white p-6 animate-in fade-in duration-500 backdrop-blur-sm">
+                    <h1 className="text-7xl font-black mb-2 tracking-tighter text-white drop-shadow-xl">GAME OVER</h1>
+                    <div className="text-2xl font-bold mb-10 opacity-80 text-red-200">The dam remains unfinished...</div>
                     
-                    <div className="bg-black/40 p-6 rounded-2xl border-4 border-white/10 text-center mb-8 w-full max-w-md backdrop-blur-md shadow-2xl transform rotate-1">
-                        <div className="text-amber-400 font-bold uppercase tracking-widest text-sm mb-1">Final Score</div>
-                        <div className="text-6xl font-black text-white mb-4 drop-shadow-md">{(useGameStore.getState().score || 0).toLocaleString()}</div>
+                    <div className="bg-black/40 p-8 rounded-3xl border border-white/10 text-center mb-10 w-full max-w-md backdrop-blur-md shadow-2xl">
+                        <div className="text-amber-400 font-bold uppercase tracking-widest text-sm mb-2">Final Score</div>
+                        <div className="text-7xl font-black text-white mb-8 drop-shadow-lg tracking-tight">{(useGameStore.getState().score || 0).toLocaleString()}</div>
                         
-                        <div className="grid grid-cols-2 gap-4 text-left bg-black/30 p-4 rounded-xl">
-                            <div>
-                                <div className="text-[10px] uppercase text-white/50 font-bold">Logs Collected</div>
-                                <div className="text-xl font-bold">{(useGameStore.getState().totalLogsCollected || 0)}</div>
+                        <div className="grid grid-cols-2 gap-4 text-left">
+                            <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                                <div className="text-[10px] uppercase text-white/50 font-bold tracking-wider mb-1">Logs Collected</div>
+                                <div className="text-2xl font-bold">{(useGameStore.getState().totalLogsCollected || 0)}</div>
                             </div>
-                            <div>
-                                <div className="text-[10px] uppercase text-white/50 font-bold">Structures Built</div>
-                                <div className="text-xl font-bold">{(useGameStore.getState().placedStructures?.length || 0)}</div>
+                            <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                                <div className="text-[10px] uppercase text-white/50 font-bold tracking-wider mb-1">Structures Built</div>
+                                <div className="text-2xl font-bold">{(useGameStore.getState().placedStructures?.length || 0)}</div>
                             </div>
                         </div>
                     </div>
                     
                     <button 
                         onClick={startGame}
-                        className="bg-white text-red-900 font-black py-4 px-12 rounded-full text-2xl hover:scale-105 transition-transform shadow-xl border-4 border-red-950"
+                        className="bg-white text-red-900 font-black py-4 px-12 rounded-full text-2xl hover:scale-105 transition-transform shadow-xl border-4 border-red-200"
                     >
                         TRY AGAIN
                     </button>
@@ -364,30 +372,40 @@ export default function App() {
             
             {phase === 'PLAYING' && (
                 <>
-                    {/* Wood Count - Moved below Health Bar */}
-                    <div className="absolute top-16 left-4 z-30 pointer-events-none">
-                        <div className="bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-xl text-white border border-white/10 shadow-lg flex items-center gap-2">
-                            <span className="text-xl">🪵</span>
-                            <span className="text-lg font-bold">{woodCount}</span>
-                        </div>
-                        {activeTree && (
-                            <div className="mt-1 bg-black/40 backdrop-blur-md p-1.5 rounded-xl border border-white/10">
-                                <div className="text-[8px] uppercase opacity-70 mb-0.5 text-white">Chomping...</div>
-                                <div className="w-20 h-1.5 bg-black/50 rounded-full overflow-hidden border border-white/20">
-                                    <div 
-                                        className="h-full bg-green-500 transition-all duration-75"
-                                        style={{ width: `${(activeTree.health / activeTree.maxHealth) * 100}%` }}
-                                    />
+                    {/* Wood Count & Health - Top Left */}
+                    <div className="absolute top-4 left-4 z-30 pointer-events-none flex flex-col gap-2">
+                        <div className="bg-black/60 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-xl min-w-[140px]">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="bg-amber-900/50 p-1.5 rounded-lg border border-amber-700/50">
+                                    <span className="text-xl">🪵</span>
+                                </div>
+                                <div>
+                                    <div className="text-[9px] font-bold text-amber-400 uppercase tracking-wider">Wood</div>
+                                    <div className="text-2xl font-black text-white leading-none">{woodCount}</div>
                                 </div>
                             </div>
-                        )}
+                            
+                            {activeTree && (
+                                <div className="mt-2 pt-2 border-t border-white/10">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <div className="text-[9px] uppercase font-bold text-white/70 tracking-wider">Tree Health</div>
+                                        <div className="text-[9px] font-mono text-white/50">{Math.ceil(activeTree.health)}%</div>
+                                    </div>
+                                    <div className="w-full h-2 bg-black/50 rounded-full overflow-hidden border border-white/10">
+                                        <div 
+                                            className="h-full bg-gradient-to-r from-green-600 to-green-400 transition-all duration-75"
+                                            style={{ width: `${(activeTree.health / activeTree.maxHealth) * 100}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                     
                     <ComboUI />
 
                     <Controls />
                     
-                    {/* Build Menu Overlay - We need to wire this up properly */}
                     <GameMenuOverlay />
                 </>
             )}
