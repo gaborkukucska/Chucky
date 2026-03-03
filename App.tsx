@@ -21,7 +21,7 @@ const PowerupTimerUI = () => {
     if (!isTreePowerupActive && !isLogPowerupActive) return null;
 
     return (
-        <div className="absolute top-24 left-1/2 transform -translate-x-1/2 flex flex-col gap-2 items-center pointer-events-none z-30 w-full">
+        <div className="absolute top-40 left-1/2 transform -translate-x-1/2 flex flex-col gap-2 items-center pointer-events-none z-30 w-full">
             {isTreePowerupActive && (
                 <div className="bg-black/60 backdrop-blur-md text-white px-4 py-2 rounded-xl border-2 border-orange-500 shadow-lg flex items-center gap-3 min-w-[200px]">
                     <span className="text-2xl">🪓</span>
@@ -191,7 +191,7 @@ const ComboUI = () => {
     if (!combo.active) return null;
     
     return (
-        <div className="absolute top-32 left-4 z-30 flex flex-col items-start pointer-events-none">
+        <div className="absolute top-48 left-4 z-30 flex flex-col items-start pointer-events-none">
             {combo.multiplier > 1 && (
                 <div className="text-5xl font-black text-amber-400 drop-shadow-[0_4px_0_rgba(0,0,0,1)] italic tracking-tighter transform -rotate-6 animate-bounce mb-2 ml-2">
                     {combo.multiplier}x
@@ -373,7 +373,7 @@ export default function App() {
             {phase === 'PLAYING' && (
                 <>
                     {/* Wood Count & Health - Top Left */}
-                    <div className="absolute top-4 left-4 z-30 pointer-events-none flex flex-col gap-2">
+                    <div className="absolute top-20 left-4 z-30 pointer-events-none flex flex-col gap-2">
                         <div className="bg-black/60 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-xl min-w-[140px]">
                             <div className="flex items-center gap-3 mb-2">
                                 <div className="bg-amber-900/50 p-1.5 rounded-lg border border-amber-700/50">

@@ -1052,32 +1052,33 @@ const Woodchuck = () => {
                  }
 
                  if (isMoving) {
-                     // Smoothly interpolate velocity
+                     // Force-based movement
                      const targetVx = moveVector.x * walkSpeed;
                      const targetVz = moveVector.z * walkSpeed;
                      
                      const currentVx = velocity.current[0];
                      const currentVz = velocity.current[2];
                      
-                     // Lerp velocity manually
-                     const newVx = THREE.MathUtils.lerp(currentVx, targetVx, delta * acceleration);
-                     const newVz = THREE.MathUtils.lerp(currentVz, targetVz, delta * acceleration);
+                     // Calculate difference
+                     const diffVx = targetVx - currentVx;
+                     const diffVz = targetVz - currentVz;
                      
-                     api.velocity.set(newVx, velocity.current[1], newVz);
+                     // Apply force proportional to difference (P-controller)
+                     const forceMultiplier = 200; // Adjust based on mass (100)
+                     api.applyForce([diffVx * forceMultiplier, 0, diffVz * forceMultiplier], [x, y, z]);
                      
                      // Downward force to stick to slopes if close to ground
                      if (distToGround < 2.0 && velocity.current[1] > -1) {
                          api.applyForce([0, -1000, 0], [x, y, z]);
                      }
                  } else {
-                     // Decelerate smoothly
+                     // Decelerate smoothly using damping (already set to 0.5)
+                     // Or apply counter-force for quicker stop
                      const currentVx = velocity.current[0];
                      const currentVz = velocity.current[2];
                      
-                     const newVx = THREE.MathUtils.lerp(currentVx, 0, delta * acceleration * 2); // Stop faster than start
-                     const newVz = THREE.MathUtils.lerp(currentVz, 0, delta * acceleration * 2);
-                     
-                     api.velocity.set(newVx, velocity.current[1], newVz);
+                     const stopForce = 100;
+                     api.applyForce([-currentVx * stopForce, 0, -currentVz * stopForce], [x, y, z]);
                  }
              }
              

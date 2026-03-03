@@ -169,24 +169,23 @@ export const Controls = () => {
             </div>
         </div>
 
-        {/* Top Right Controls: View & Build */}
-        <div className="absolute top-24 right-4 z-50 flex flex-row gap-3 items-start pointer-events-none">
+        {/* Bottom Right Controls: View & Build */}
+        <div className="absolute bottom-8 right-8 z-50 flex flex-col-reverse gap-3 items-end pointer-events-none">
             <button 
-                className="w-14 h-14 bg-black/60 backdrop-blur-md rounded-2xl pointer-events-auto border border-white/20 flex flex-col items-center justify-center shadow-lg active:scale-90 transition-all hover:bg-black/70 group"
+                className="w-16 h-16 bg-black/60 backdrop-blur-md rounded-full pointer-events-auto border-2 border-white/20 flex flex-col items-center justify-center shadow-xl active:scale-90 transition-all hover:bg-black/70 group"
                 onClick={cycleCameraMode}
             >
-                <span className="text-xl group-hover:scale-110 transition-transform">📷</span>
-                <span className="text-[8px] text-white/80 font-bold uppercase mt-0.5 tracking-wide">{cameraMode}</span>
+                <span className="text-2xl group-hover:scale-110 transition-transform">📷</span>
             </button>
 
             <button 
-                className={`w-14 h-14 rounded-2xl pointer-events-auto shadow-xl flex flex-col items-center justify-center border-2 border-white/50 transition-all transform active:scale-95 touch-none ${buttonColor}`}
+                className={`w-20 h-20 rounded-full pointer-events-auto shadow-2xl flex flex-col items-center justify-center border-4 border-white/30 transition-all transform active:scale-95 touch-none ${buttonColor}`}
                 onPointerDown={destroyTargetId ? handleDestroyStart : undefined}
                 onClick={destroyTargetId ? undefined : handleActionButton}
                 onPointerUp={destroyTargetId ? handleDestroyEnd : undefined}
                 onPointerLeave={destroyTargetId ? handleDestroyEnd : undefined}
             >
-                <span className="text-2xl filter drop-shadow-md">
+                <span className="text-4xl filter drop-shadow-md">
                     {destroyTargetId ? '💥' : isPlacementMode ? '✅' : '🏗️'}
                 </span>
             </button>
