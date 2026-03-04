@@ -237,8 +237,7 @@ export const Woodchuck = () => {
              }
              
              if (visualRef.current) {
-                 visualRef.current.rotation.order = 'YXZ';
-                 visualRef.current.rotation.set(-Math.PI / 2, currentRotationY.current, 0);
+                 // Handled at end of frame
              }
         } else {
              // --- Walking / Wading Movement ---
@@ -292,13 +291,20 @@ export const Woodchuck = () => {
                  }
              }
              
-             if (visualRef.current) {
-                 visualRef.current.rotation.order = 'YXZ';
+             // End of land physics
+        }
+        
+        // Update Visual Position & Rotation (Runs for both states)
+        if (visualRef.current) {
+             visualRef.current.position.set(x, y, z);
+
+             visualRef.current.rotation.order = 'YXZ';
+             if (isSwimming) {
+                 visualRef.current.rotation.set(-Math.PI / 2, currentRotationY.current, 0);
+             } else {
                  visualRef.current.rotation.set(0, currentRotationY.current, 0);
              }
         }
-        
-        // Update Preview Position
         if (isPlacementMode && previewRef.current) {
              const offset = 3.0;
              const previewX = x + Math.sin(currentRotationY.current) * offset;
