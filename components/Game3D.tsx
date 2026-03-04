@@ -33,7 +33,7 @@ const CameraController = () => {
              camera.position.lerp(new THREE.Vector3(x, y + 5, z + 8), delta * 5);
              camera.lookAt(targetPos);
         } else if (cameraMode === 'TOP_DOWN') {
-             camera.position.lerp(new THREE.Vector3(x, 40, z + 5), delta * 2);
+             camera.position.lerp(new THREE.Vector3(x, 120, z + 5), delta * 2);
              camera.lookAt(targetPos);
         } else if (cameraMode === 'CINEMATIC') {
              // Side view / Cinematic
