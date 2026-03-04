@@ -10,27 +10,23 @@ import { Water } from './Water';
 import { Boulder, Tree, Log, LooseLog, PlacedStructureRenderer } from './WorldObjects';
 import { Woodchuck } from './Woodchuck';
 
+import { currentWoodchuckPos } from '../globals';
+
 // --- Camera Controller ---
 const CameraController = () => {
     const { camera } = useThree();
-    const woodchuckPosition = useGameStore(state => state.woodchuckPosition);
+    // Use global ref for smooth 60fps updates instead of store
     const cameraMode = useGameStore(state => state.cameraMode);
     
     useFrame((state, delta) => {
-        if (!woodchuckPosition) return;
-        const [x, y, z] = woodchuckPosition;
+        const { x, y, z } = currentWoodchuckPos;
+        if (x === 0 && y === 0 && z === 0) return; // Skip init
 
         const targetPos = new THREE.Vector3(x, y, z);
         
         if (cameraMode === 'BEHIND') {
              // Smooth follow behind
-             // We use a fixed offset relative to world for now, as we decoupled rotation.
-             // Ideally this should rotate with the player's input direction.
-             // But since we moved Woodchuck logic out, we don't have easy access to input rotation here.
-             // We can infer it from velocity or just keep it simple.
-             // Let's use a standard high-angle follow.
-             
-             camera.position.lerp(new THREE.Vector3(x, y + 8, z + 12), delta * 2);
+             camera.position.lerp(new THREE.Vector3(x, y + 8, z + 12), delta * 5); // Faster lerp for responsiveness
              camera.lookAt(targetPos);
         } else if (cameraMode === 'TOP_DOWN') {
              camera.position.lerp(new THREE.Vector3(x, 40, z + 5), delta * 2);

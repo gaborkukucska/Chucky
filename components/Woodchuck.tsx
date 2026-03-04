@@ -66,6 +66,8 @@ export const Woodchuck = () => {
     const previewRef = useRef<THREE.Group>(null);
     const placementRotation = useGameStore(state => state.placementRotation);
 
+    const isSwimmingRef = useRef(false);
+
     useFrame((state, delta) => {
         if (isPaused) {
             api.velocity.set(0, 0, 0);
@@ -174,25 +176,39 @@ export const Woodchuck = () => {
 
         // --- Unified Physics Logic ---
         
-        // 1. Buoyancy (Always active if in water)
+        // 1. Determine State (Hysteresis)
         const inWater = y < WATER_LEVEL + 0.5;
+        
+        if (inWater) {
+            // Enter swim if deep enough
+            if (!isSwimmingRef.current && distToGround > 1.2) {
+                isSwimmingRef.current = true;
+            } 
+            // Exit swim if hitting ground (wading)
+            else if (isSwimmingRef.current && distToGround < 0.8) {
+                isSwimmingRef.current = false;
+            }
+        } else {
+            isSwimmingRef.current = false;
+        }
+        const isSwimming = isSwimmingRef.current;
+
+        // 2. Buoyancy
         if (inWater) {
              const depth = (WATER_LEVEL + 0.5) - y;
-             // Stronger buoyancy to ensure floating
-             // Mass 100 * Gravity 20 = 2000 weight.
-             // Base buoyancy 1500 + depth factor.
-             // If depth > 0.2 (chest deep), force > 2000.
-             const buoyancyForce = 1500 + (depth * 3000);
+             let buoyancyForce = 1500 + (depth * 3000);
+             
+             // Reduce buoyancy if wading to allow gravity to hold us to the ground (for exiting)
+             if (!isSwimming) {
+                 buoyancyForce *= 0.4; // Enough to lighten, but gravity (2000) wins
+             }
+
              api.applyForce([0, buoyancyForce, 0], [x, y, z]); 
              
              // Drag (Vertical)
              const drag = velocity.current[1] * 200;
              api.applyForce([0, -drag, 0], [x, y, z]);
         }
-
-        // 2. State Determination
-        // Swimming if deep enough AND not grounded
-        const isSwimming = inWater && (distToGround > 0.8);
 
         if (isSwimming) {
              // --- Swimming Movement ---
@@ -203,9 +219,21 @@ export const Woodchuck = () => {
              
              const swimSpeed = 18;
              if (isMoving) {
-                 api.velocity.set(moveVector.x * swimSpeed, velocity.current[1], moveVector.z * swimSpeed + flowSpeed * 0.5);
+                 const targetVx = moveVector.x * swimSpeed;
+                 const targetVz = moveVector.z * swimSpeed + flowSpeed * 0.5;
+                 
+                 // Lerp for smooth swimming
+                 const newVx = THREE.MathUtils.lerp(velocity.current[0], targetVx, delta * 3.0);
+                 const newVz = THREE.MathUtils.lerp(velocity.current[2], targetVz, delta * 3.0);
+                 
+                 api.velocity.set(newVx, velocity.current[1], newVz);
              } else {
-                 api.velocity.set(0, velocity.current[1], flowSpeed * 0.5);
+                 // Drift with flow
+                 const targetVz = flowSpeed * 0.5;
+                 const newVx = THREE.MathUtils.lerp(velocity.current[0], 0, delta * 2.0);
+                 const newVz = THREE.MathUtils.lerp(velocity.current[2], targetVz, delta * 2.0);
+                 
+                 api.velocity.set(newVx, velocity.current[1], newVz);
              }
              
              if (visualRef.current) {
@@ -224,10 +252,9 @@ export const Woodchuck = () => {
                  api.position.set(x, terrainH + 2, z);
                  api.velocity.set(0, 0, 0);
              } else {
-                 // Gravity Assist (only if not swimming/floating strongly)
-                 // If wading, buoyancy might be lifting us, so don't apply extra gravity unless we really want to stick.
-                 // But we want to be able to walk out.
-                 if (distToGround > 0.5 && !inWater) {
+                 // Gravity Assist
+                 // Apply if grounded, even in water (wading) to stick to slopes
+                 if (distToGround > 0.5) {
                      api.applyForce([0, -2000, 0], [x, y, z]); 
                  }
 
@@ -251,7 +278,7 @@ export const Woodchuck = () => {
                      api.velocity.set(newVx, velocity.current[1], newVz + flowZ);
                      
                      // Downward force to stick to slopes
-                     if (distToGround < 2.0 && velocity.current[1] > -1 && !inWater) {
+                     if (distToGround < 2.0 && velocity.current[1] > -1) {
                          api.applyForce([0, -500, 0], [x, y, z]);
                      }
                  } else {
