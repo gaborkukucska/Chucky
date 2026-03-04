@@ -127,40 +127,27 @@ export const Woodchuck = () => {
         let foundTree = false;
         if (input.isBuilding) {
              if (isPlacementMode) {
-                 // Place structure logic
-                 // We need to trigger placement. But `placeStructure` needs position.
-                 // The preview position is calculated below.
-                 // We can trigger it here if input.isBuilding is true (which is set by button)
-                 // But we need to debounce it.
-                 // Actually, the button sets `window.woodchuckInput.isBuilding = true`.
-                 // We should consume it.
-                 
-                 // Calculate preview position
                  const offset = 3.0;
                  const previewX = x + Math.sin(currentRotationY.current) * offset;
                  const previewZ = z + Math.cos(currentRotationY.current) * offset;
-                 const previewY = calculateTerrainHeight(previewX, previewZ); // Snap to terrain? Or water?
+                 const previewY = calculateTerrainHeight(previewX, previewZ);
                  
-                 // Check if valid placement (e.g. in water for dam, or land for others)
-                 // For now, just place.
                  placeStructure({
                      position: [previewX, previewY, previewZ],
                      rotation: [0, placementRotation, 0]
                  });
                  
-                 // Reset input
                  // @ts-ignore
                  window.woodchuckInput.isBuilding = false;
              }
         } else {
-            // Chopping logic
             trees.forEach(tree => {
                 if (tree.isFelled) return;
                 const dx = x - tree.position[0];
                 const dz = z - tree.position[2];
                 const distSq = dx*dx + dz*dz;
                 
-                if (distSq < 4.0) { // Close enough
+                if (distSq < 4.0) { 
                     foundTree = true;
                     setActiveTree(tree.id);
                 }
@@ -171,7 +158,6 @@ export const Woodchuck = () => {
             setActiveTree(null);
         }
         
-        // Handle Destroy Target Distance Check
         if (destroyTargetId) {
             const target = placedStructures.find(s => s.id === destroyTargetId);
             if (target) {
@@ -186,27 +172,34 @@ export const Woodchuck = () => {
             }
         }
 
-        // --- Movement Logic ---
+        // --- Unified Physics Logic ---
         
-        // Determine if swimming:
-        // Must be below water level AND not touching the ground (wading)
-        // distToGround approx 0.6 when standing. 
-        // Give some buffer: if distToGround > 0.8, we are floating.
-        const isSwimming = (y < WATER_LEVEL + 0.5) && (distToGround > 0.8);
+        // 1. Buoyancy (Always active if in water)
+        const inWater = y < WATER_LEVEL + 0.5;
+        if (inWater) {
+             const depth = (WATER_LEVEL + 0.5) - y;
+             // Stronger buoyancy to ensure floating
+             // Mass 100 * Gravity 20 = 2000 weight.
+             // Base buoyancy 1500 + depth factor.
+             // If depth > 0.2 (chest deep), force > 2000.
+             const buoyancyForce = 1500 + (depth * 3000);
+             api.applyForce([0, buoyancyForce, 0], [x, y, z]); 
+             
+             // Drag (Vertical)
+             const drag = velocity.current[1] * 200;
+             api.applyForce([0, -drag, 0], [x, y, z]);
+        }
+
+        // 2. State Determination
+        // Swimming if deep enough AND not grounded
+        const isSwimming = inWater && (distToGround > 0.8);
 
         if (isSwimming) {
+             // --- Swimming Movement ---
              const riverW = getRiverWidth(z);
              const flowSpeed = 80 / Math.max(1, riverW); 
              
-             api.linearDamping.set(0.9);
-             
-             const depth = WATER_LEVEL - y;
-             if (depth > 0.0) {
-                 const buoyancyForce = 1000 + (depth * 2500);
-                 api.applyForce([0, buoyancyForce, 0], [x, y, z]); 
-                 const drag = velocity.current[1] * 150;
-                 api.applyForce([0, -drag, 0], [x, y, z]);
-             }
+             api.linearDamping.set(0.9); // High damping for control
              
              const swimSpeed = 18;
              if (isMoving) {
@@ -220,17 +213,21 @@ export const Woodchuck = () => {
                  visualRef.current.rotation.set(-Math.PI / 2, currentRotationY.current, 0);
              }
         } else {
-             // Land Physics (Walking / Wading)
+             // --- Walking / Wading Movement ---
              api.linearDamping.set(0.1); 
              
              const walkSpeed = 25;
              const acceleration = 3.0; 
              
+             // Safety net for falling through map
              if (y < terrainH - 5) {
                  api.position.set(x, terrainH + 2, z);
                  api.velocity.set(0, 0, 0);
              } else {
-                 if (distToGround > 0.5) {
+                 // Gravity Assist (only if not swimming/floating strongly)
+                 // If wading, buoyancy might be lifting us, so don't apply extra gravity unless we really want to stick.
+                 // But we want to be able to walk out.
+                 if (distToGround > 0.5 && !inWater) {
                      api.applyForce([0, -2000, 0], [x, y, z]); 
                  }
 
@@ -244,16 +241,17 @@ export const Woodchuck = () => {
                      const newVx = THREE.MathUtils.lerp(currentVx, targetVx, delta * acceleration);
                      const newVz = THREE.MathUtils.lerp(currentVz, targetVz, delta * acceleration);
                      
-                     // If wading (in water but on ground), apply some flow
+                     // Flow effect while wading
                      let flowZ = 0;
-                     if (y < WATER_LEVEL + 0.5) {
+                     if (inWater) {
                          const riverW = getRiverWidth(z);
-                         flowZ = (80 / Math.max(1, riverW)) * 0.3; // Reduced flow effect while wading
+                         flowZ = (80 / Math.max(1, riverW)) * 0.2; 
                      }
 
                      api.velocity.set(newVx, velocity.current[1], newVz + flowZ);
                      
-                     if (distToGround < 2.0 && velocity.current[1] > -1) {
+                     // Downward force to stick to slopes
+                     if (distToGround < 2.0 && velocity.current[1] > -1 && !inWater) {
                          api.applyForce([0, -500, 0], [x, y, z]);
                      }
                  } else {
