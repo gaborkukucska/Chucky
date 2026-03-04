@@ -172,20 +172,20 @@ export const Controls = () => {
         {/* Top Right Controls: View & Build (Under Score) */}
         <div className="absolute top-28 right-4 z-50 flex flex-row gap-2 items-start pointer-events-none">
             <button 
-                className="w-12 h-12 bg-black/60 backdrop-blur-md rounded-xl pointer-events-auto border border-white/20 flex flex-col items-center justify-center shadow-lg active:scale-90 transition-all hover:bg-black/70 group"
+                className="w-10 h-10 bg-black/60 backdrop-blur-md rounded-xl pointer-events-auto border border-white/20 flex flex-col items-center justify-center shadow-lg active:scale-90 transition-all hover:bg-black/70 group"
                 onClick={cycleCameraMode}
             >
-                <span className="text-xl group-hover:scale-110 transition-transform">📷</span>
+                <span className="text-lg group-hover:scale-110 transition-transform">📷</span>
             </button>
 
             <button 
-                className={`w-12 h-12 rounded-xl pointer-events-auto shadow-xl flex flex-col items-center justify-center border-2 border-white/30 transition-all transform active:scale-95 touch-none ${buttonColor}`}
+                className={`w-10 h-10 rounded-xl pointer-events-auto shadow-xl flex flex-col items-center justify-center border-2 border-white/30 transition-all transform active:scale-95 touch-none ${buttonColor}`}
                 onPointerDown={destroyTargetId ? handleDestroyStart : undefined}
                 onClick={destroyTargetId ? undefined : handleActionButton}
                 onPointerUp={destroyTargetId ? handleDestroyEnd : undefined}
                 onPointerLeave={destroyTargetId ? handleDestroyEnd : undefined}
             >
-                <span className="text-2xl filter drop-shadow-md">
+                <span className="text-xl filter drop-shadow-md">
                     {destroyTargetId ? '💥' : isPlacementMode ? '✅' : '🏗️'}
                 </span>
             </button>

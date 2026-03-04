@@ -24,14 +24,19 @@ const CameraController = () => {
 
         const targetPos = new THREE.Vector3(x, y, z);
         
-        if (cameraMode === 'BEHIND') {
-             // Smooth follow behind
-             camera.position.lerp(new THREE.Vector3(x, y + 8, z + 12), delta * 5); // Faster lerp for responsiveness
+        if (cameraMode === 'FOLLOW') {
+             // Standard follow
+             camera.position.lerp(new THREE.Vector3(x, y + 10, z + 15), delta * 3);
+             camera.lookAt(targetPos);
+        } else if (cameraMode === 'BEHIND') {
+             // Closer, more action-oriented
+             camera.position.lerp(new THREE.Vector3(x, y + 5, z + 8), delta * 5);
              camera.lookAt(targetPos);
         } else if (cameraMode === 'TOP_DOWN') {
              camera.position.lerp(new THREE.Vector3(x, 40, z + 5), delta * 2);
              camera.lookAt(targetPos);
-        } else if (cameraMode === 'SIDE') {
+        } else if (cameraMode === 'CINEMATIC') {
+             // Side view / Cinematic
              camera.position.lerp(new THREE.Vector3(x + 20, y + 5, z), delta * 2);
              camera.lookAt(targetPos);
         }

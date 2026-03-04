@@ -48,6 +48,9 @@ export const Woodchuck = () => {
     const lastChopTime = useRef(0);
     
     useEffect(() => {
+        // Initialize global position immediately
+        currentWoodchuckPos.set(0, 10, 20);
+        
         const sub = api.position.subscribe(v => {
             pos.current = v;
             currentWoodchuckPos.set(v[0], v[1], v[2]);
@@ -333,11 +336,8 @@ export const Woodchuck = () => {
 
     return (
         <group>
-            {/* Physics Body - HIDDEN VISUALLY */}
-            <mesh ref={ref as any} castShadow receiveShadow visible={false}>
-                <sphereGeometry args={[0.6, 32, 32]} />
-                <meshStandardMaterial color={isTreePowerupActive ? "#FFD700" : "#8D6E63"} />
-            </mesh>
+            {/* Physics Body - Invisible Group */}
+            <group ref={ref as any} />
             
             {/* Visual Model (Rotated independently) */}
             <group ref={visualRef} position={[pos.current[0], pos.current[1], pos.current[2]]}>
