@@ -25,19 +25,20 @@ const CameraController = () => {
         const targetPos = new THREE.Vector3(x, y, z);
         
         if (cameraMode === 'FOLLOW') {
-             // Standard follow
-             camera.position.lerp(new THREE.Vector3(x, y + 10, z + 15), delta * 3);
+             // Standard follow - Zoomed out
+             camera.position.lerp(new THREE.Vector3(x, y + 15, z + 25), delta * 3);
              camera.lookAt(targetPos);
         } else if (cameraMode === 'BEHIND') {
-             // Closer, more action-oriented
-             camera.position.lerp(new THREE.Vector3(x, y + 5, z + 8), delta * 5);
+             // Action view - Zoomed out
+             camera.position.lerp(new THREE.Vector3(x, y + 8, z + 15), delta * 5);
              camera.lookAt(targetPos);
         } else if (cameraMode === 'TOP_DOWN') {
-             camera.position.lerp(new THREE.Vector3(x, 120, z + 5), delta * 2);
+             // Reverted to original height as requested
+             camera.position.lerp(new THREE.Vector3(x, 40, z + 5), delta * 2);
              camera.lookAt(targetPos);
         } else if (cameraMode === 'CINEMATIC') {
-             // Side view / Cinematic
-             camera.position.lerp(new THREE.Vector3(x + 20, y + 5, z), delta * 2);
+             // Side view - Zoomed out
+             camera.position.lerp(new THREE.Vector3(x + 35, y + 10, z), delta * 2);
              camera.lookAt(targetPos);
         }
     });

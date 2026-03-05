@@ -205,7 +205,7 @@ export const Woodchuck = () => {
              
              // Reduce buoyancy if wading to allow gravity to hold us to the ground (for exiting)
              if (!isSwimming) {
-                 buoyancyForce *= 0.1; // Almost zero buoyancy when wading to let gravity work
+                 buoyancyForce *= 0.4; // Enough to lighten, but gravity (2000) wins
              }
 
              api.applyForce([0, buoyancyForce, 0], [x, y, z]); 
@@ -233,8 +233,8 @@ export const Woodchuck = () => {
                  
                  // Vertical boost to help climb banks
                  let newVy = velocity.current[1];
-                 if (distToGround < 2.5) {
-                     newVy += 10 * delta; // Stronger consistent lift near banks
+                 if (distToGround < 2.0) {
+                     newVy += 5 * delta; // Gentle lift
                  }
                  
                  api.velocity.set(newVx, newVy, newVz);
@@ -264,8 +264,7 @@ export const Woodchuck = () => {
              } else {
                  // Gravity Assist
                  // Apply if grounded, even in water (wading) to stick to slopes
-                 // BUT disable if in water to prevent sticking to bottom when trying to exit
-                 if (distToGround > 0.5 && !inWater) {
+                 if (distToGround > 0.5) {
                      api.applyForce([0, -2000, 0], [x, y, z]); 
                  }
 
