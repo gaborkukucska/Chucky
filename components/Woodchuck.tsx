@@ -181,17 +181,24 @@ export const Woodchuck = () => {
         
         // 1. Determine State (Hysteresis)
         const inWater = y < WATER_LEVEL + 0.5;
+        const wasSwimming = isSwimmingRef.current;
         
         if (inWater) {
             // Enter swim if deep enough
-            if (!isSwimmingRef.current && distToGround > 1.0) {
+            if (!wasSwimming && distToGround > 1.2) {
                 isSwimmingRef.current = true;
             } 
-            // Exit swim if hitting ground (wading) - Relaxed threshold
-            else if (isSwimmingRef.current && distToGround < 0.8) {
+            // Exit swim if hitting ground (wading)
+            else if (wasSwimming && distToGround < 1.0) {
                 isSwimmingRef.current = false;
-                // BIG HOP to clear the bank
-                api.velocity.set(velocity.current[0], 8, velocity.current[2]);
+                // BIG HOP to clear the bank - Impulse based
+                // Push forward and UP
+                const exitForce = 2000;
+                const exitLift = 1500;
+                api.applyImpulse(
+                    [moveVector.x * exitForce, exitLift, moveVector.z * exitForce],
+                    [x, y, z] // Apply at center of mass
+                );
             }
         } else {
             isSwimmingRef.current = false;
@@ -205,46 +212,50 @@ export const Woodchuck = () => {
              
              // Reduce buoyancy if wading to allow gravity to hold us to the ground (for exiting)
              if (!isSwimming) {
-                 buoyancyForce *= 0.6; // Increased from 0.4 to prevent sinking
+                 buoyancyForce *= 0.7; 
              }
 
              api.applyForce([0, buoyancyForce, 0], [x, y, z]); 
              
-             // Drag (Vertical) - Increased to prevent falling through water
+             // Drag (Vertical)
              const drag = velocity.current[1] * 400;
              api.applyForce([0, -drag, 0], [x, y, z]);
         }
 
+        // 3. Movement (Force-based to prevent jitter)
+        const mass = 100;
+        
         if (isSwimming) {
              // --- Swimming Movement ---
              const riverW = getRiverWidth(z);
              const flowSpeed = 80 / Math.max(1, riverW); 
              
-             api.linearDamping.set(0.9); // High damping for control
+             api.linearDamping.set(0.9); 
              
-             const swimSpeed = 18;
+             const swimSpeed = 22;
+             
              if (isMoving) {
                  const targetVx = moveVector.x * swimSpeed;
                  const targetVz = moveVector.z * swimSpeed + flowSpeed * 0.5;
                  
-                 // Lerp for smooth swimming
-                 const newVx = THREE.MathUtils.lerp(velocity.current[0], targetVx, delta * 3.0);
-                 const newVz = THREE.MathUtils.lerp(velocity.current[2], targetVz, delta * 3.0);
+                 const currentVx = velocity.current[0];
+                 const currentVz = velocity.current[2];
                  
+                 const diffX = targetVx - currentVx;
+                 const diffZ = targetVz - currentVz;
+                 
+                 const forceFactor = 300; // Responsive swimming
+                 api.applyForce([diffX * forceFactor, 0, diffZ * forceFactor], [x, y, z]);
+
                  // Vertical boost to help climb banks
-                 let newVy = velocity.current[1];
-                 if (distToGround < 2.0) {
-                     newVy += 5 * delta; // Gentle lift
+                 if (distToGround < 2.5) {
+                     api.applyForce([0, 2000, 0], [x, y, z]); // Lift force
                  }
-                 
-                 api.velocity.set(newVx, newVy, newVz);
              } else {
-                 // Drift with flow
+                 // Drift
                  const targetVz = flowSpeed * 0.5;
-                 const newVx = THREE.MathUtils.lerp(velocity.current[0], 0, delta * 2.0);
-                 const newVz = THREE.MathUtils.lerp(velocity.current[2], targetVz, delta * 2.0);
-                 
-                 api.velocity.set(newVx, velocity.current[1], newVz);
+                 const diffZ = targetVz - velocity.current[2];
+                 api.applyForce([0, 0, diffZ * 100], [x, y, z]);
              }
              
              if (visualRef.current) {
@@ -254,19 +265,17 @@ export const Woodchuck = () => {
              // --- Walking / Wading Movement ---
              api.linearDamping.set(0.1); 
              
-             const walkSpeed = 25;
-             const acceleration = 3.0; 
+             const walkSpeed = 30;
              
-             // Safety net for falling through map
+             // Safety net
              if (y < terrainH - 5) {
                  api.position.set(x, terrainH + 2, z);
                  api.velocity.set(0, 0, 0);
              } else {
-                 // Gravity Assist
-                 // Apply if grounded, even in water (wading) to stick to slopes
-                 // BUT disable if in water to prevent sticking to bottom when trying to exit
-                 if (distToGround > 0.5 && !inWater) {
-                     api.applyForce([0, -2000, 0], [x, y, z]); 
+                 // Gravity Assist - Only if NOT moving up (jumping/climbing)
+                 // And not in water (to allow easy exit)
+                 if (distToGround > 0.5 && !inWater && velocity.current[1] <= 0.5) {
+                     api.applyForce([0, -3000, 0], [x, y, z]); 
                  }
 
                  if (isMoving) {
@@ -276,30 +285,29 @@ export const Woodchuck = () => {
                      const currentVx = velocity.current[0];
                      const currentVz = velocity.current[2];
                      
-                     const newVx = THREE.MathUtils.lerp(currentVx, targetVx, delta * acceleration);
-                     const newVz = THREE.MathUtils.lerp(currentVz, targetVz, delta * acceleration);
+                     const diffX = targetVx - currentVx;
+                     const diffZ = targetVz - currentVz;
+                     
+                     const forceFactor = 500; // Strong control on land
+                     api.applyForce([diffX * forceFactor, 0, diffZ * forceFactor], [x, y, z]);
                      
                      // Flow effect while wading
-                     let flowZ = 0;
                      if (inWater) {
                          const riverW = getRiverWidth(z);
-                         flowZ = (80 / Math.max(1, riverW)) * 0.2; 
+                         const flowZ = (80 / Math.max(1, riverW)) * 0.2; 
+                         api.applyForce([0, 0, flowZ * 100], [x, y, z]);
                      }
-
-                     api.velocity.set(newVx, velocity.current[1], newVz + flowZ);
                      
-                     // Downward force to stick to slopes
-                     if (distToGround < 2.0 && velocity.current[1] > -1) {
-                         api.applyForce([0, -500, 0], [x, y, z]);
+                     // Downward force to stick to slopes (extra stickiness)
+                     if (distToGround < 2.0 && velocity.current[1] > -1 && !inWater) {
+                         api.applyForce([0, -1000, 0], [x, y, z]);
                      }
                  } else {
+                     // Stop quickly
                      const currentVx = velocity.current[0];
                      const currentVz = velocity.current[2];
-                     
-                     const newVx = THREE.MathUtils.lerp(currentVx, 0, delta * acceleration * 2);
-                     const newVz = THREE.MathUtils.lerp(currentVz, 0, delta * acceleration * 2);
-                     
-                     api.velocity.set(newVx, velocity.current[1], newVz);
+                     const forceFactor = 400;
+                     api.applyForce([-currentVx * forceFactor, 0, -currentVz * forceFactor], [x, y, z]);
                  }
              }
              
@@ -308,7 +316,11 @@ export const Woodchuck = () => {
         
         // Update Visual Position & Rotation (Runs for both states)
         if (visualRef.current) {
-             visualRef.current.position.set(x, y, z);
+             const smoothFactor = 0.4;
+             visualRef.current.position.lerp(new THREE.Vector3(x, y, z), smoothFactor);
+             
+             // Update global position from smoothed visual position so camera follows smoothly
+             currentWoodchuckPos.copy(visualRef.current.position);
 
              visualRef.current.rotation.order = 'YXZ';
              if (isSwimming) {
