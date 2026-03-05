@@ -184,11 +184,11 @@ export const Woodchuck = () => {
         
         if (inWater) {
             // Enter swim if deep enough
-            if (!isSwimmingRef.current && distToGround > 1.5) {
+            if (!isSwimmingRef.current && distToGround > 1.0) {
                 isSwimmingRef.current = true;
             } 
             // Exit swim if hitting ground (wading) - Relaxed threshold
-            else if (isSwimmingRef.current && distToGround < 1.0) {
+            else if (isSwimmingRef.current && distToGround < 0.8) {
                 isSwimmingRef.current = false;
                 // BIG HOP to clear the bank
                 api.velocity.set(velocity.current[0], 8, velocity.current[2]);
@@ -205,13 +205,13 @@ export const Woodchuck = () => {
              
              // Reduce buoyancy if wading to allow gravity to hold us to the ground (for exiting)
              if (!isSwimming) {
-                 buoyancyForce *= 0.4; // Enough to lighten, but gravity (2000) wins
+                 buoyancyForce *= 0.6; // Increased from 0.4 to prevent sinking
              }
 
              api.applyForce([0, buoyancyForce, 0], [x, y, z]); 
              
-             // Drag (Vertical)
-             const drag = velocity.current[1] * 200;
+             // Drag (Vertical) - Increased to prevent falling through water
+             const drag = velocity.current[1] * 400;
              api.applyForce([0, -drag, 0], [x, y, z]);
         }
 
@@ -264,7 +264,8 @@ export const Woodchuck = () => {
              } else {
                  // Gravity Assist
                  // Apply if grounded, even in water (wading) to stick to slopes
-                 if (distToGround > 0.5) {
+                 // BUT disable if in water to prevent sticking to bottom when trying to exit
+                 if (distToGround > 0.5 && !inWater) {
                      api.applyForce([0, -2000, 0], [x, y, z]); 
                  }
 

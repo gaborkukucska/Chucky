@@ -25,20 +25,20 @@ const CameraController = () => {
         const targetPos = new THREE.Vector3(x, y, z);
         
         if (cameraMode === 'FOLLOW') {
-             // Standard follow - Zoomed out
-             camera.position.lerp(new THREE.Vector3(x, y + 15, z + 25), delta * 3);
+             // Standard follow - Zoomed out significantly
+             camera.position.lerp(new THREE.Vector3(x, y + 20, z + 40), delta * 3);
              camera.lookAt(targetPos);
         } else if (cameraMode === 'BEHIND') {
              // Action view - Zoomed out
-             camera.position.lerp(new THREE.Vector3(x, y + 8, z + 15), delta * 5);
+             camera.position.lerp(new THREE.Vector3(x, y + 12, z + 25), delta * 5);
              camera.lookAt(targetPos);
         } else if (cameraMode === 'TOP_DOWN') {
-             // Reverted to original height as requested
+             // Keep at 40 as requested (User liked this one)
              camera.position.lerp(new THREE.Vector3(x, 40, z + 5), delta * 2);
              camera.lookAt(targetPos);
         } else if (cameraMode === 'CINEMATIC') {
              // Side view - Zoomed out
-             camera.position.lerp(new THREE.Vector3(x + 35, y + 10, z), delta * 2);
+             camera.position.lerp(new THREE.Vector3(x + 45, y + 15, z), delta * 2);
              camera.lookAt(targetPos);
         }
     });
