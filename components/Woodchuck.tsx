@@ -70,6 +70,7 @@ export const Woodchuck = () => {
     const placementRotation = useGameStore(state => state.placementRotation);
 
     const isSwimmingRef = useRef(false);
+    const lastJumpTime = useRef(0);
 
     useFrame((state, delta) => {
         if (isPaused) {
@@ -103,6 +104,11 @@ export const Woodchuck = () => {
         const moveVector = new THREE.Vector3()
             .addScaledVector(right, input.x)
             .addScaledVector(forward, -input.y); 
+            
+        // Normalize moveVector if it has length to ensure consistent force application
+        if (moveVector.lengthSq() > 0) {
+            moveVector.normalize();
+        }
 
         if (isMoving) {
             const targetAngle = Math.atan2(moveVector.x, moveVector.z);
@@ -191,12 +197,21 @@ export const Woodchuck = () => {
             // Exit swim if hitting ground (wading)
             else if (wasSwimming && distToGround < 1.0) {
                 isSwimmingRef.current = false;
+                lastJumpTime.current = state.clock.elapsedTime;
+                
                 // BIG HOP to clear the bank - Impulse based
                 // Push forward and UP
-                const exitForce = 2000;
-                const exitLift = 1500;
+                const exitForce = 4000; // Increased from 2000
+                const exitLift = 3000;  // Increased from 1500
+                
+                // If not moving, jump forward relative to rotation
+                let jumpDir = moveVector.clone();
+                if (jumpDir.lengthSq() < 0.1) {
+                    jumpDir.set(Math.sin(currentRotationY.current), 0, Math.cos(currentRotationY.current));
+                }
+                
                 api.applyImpulse(
-                    [moveVector.x * exitForce, exitLift, moveVector.z * exitForce],
+                    [jumpDir.x * exitForce, exitLift, jumpDir.z * exitForce],
                     [x, y, z] // Apply at center of mass
                 );
             }
@@ -272,9 +287,12 @@ export const Woodchuck = () => {
                  api.position.set(x, terrainH + 2, z);
                  api.velocity.set(0, 0, 0);
              } else {
+                 const timeSinceJump = state.clock.elapsedTime - lastJumpTime.current;
+                 
                  // Gravity Assist - Only if NOT moving up (jumping/climbing)
                  // And not in water (to allow easy exit)
-                 if (distToGround > 0.5 && !inWater && velocity.current[1] <= 0.5) {
+                 // And not recently jumped
+                 if (distToGround > 0.5 && !inWater && velocity.current[1] <= 0.5 && timeSinceJump > 1.0) {
                      api.applyForce([0, -3000, 0], [x, y, z]); 
                  }
 
@@ -299,7 +317,8 @@ export const Woodchuck = () => {
                      }
                      
                      // Downward force to stick to slopes (extra stickiness)
-                     if (distToGround < 2.0 && velocity.current[1] > -1 && !inWater) {
+                     // DISABLED if moving up fast (jumping out of water)
+                     if (distToGround < 2.0 && velocity.current[1] > -1 && velocity.current[1] < 2 && !inWater && timeSinceJump > 0.5) {
                          api.applyForce([0, -1000, 0], [x, y, z]);
                      }
                  } else {
