@@ -70,7 +70,6 @@ export const Woodchuck = () => {
     const placementRotation = useGameStore(state => state.placementRotation);
 
     const isSwimmingRef = useRef(false);
-    const lastJumpTime = useRef(0);
 
     useFrame((state, delta) => {
         if (isPaused) {
@@ -131,8 +130,6 @@ export const Woodchuck = () => {
         }
 
         // --- Physics & Movement ---
-        const terrainH = calculateTerrainHeight(x, z);
-        const distToGround = y - terrainH;
         
         // Check for Tree Interaction
         let foundTree = false;
@@ -185,69 +182,64 @@ export const Woodchuck = () => {
 
         // --- Unified Physics Logic ---
         
-        // 1. Determine State (Hysteresis)
-        const inWater = y < WATER_LEVEL + 0.5;
-        const wasSwimming = isSwimmingRef.current;
+        // 1. Determine State
+        const terrainH = calculateTerrainHeight(x, z);
+        const distToGround = y - terrainH; // Distance from center to terrain
+        const radius = 0.6;
+        const touchingGround = distToGround < (radius + 0.2); // Slightly generous ground check
         
-        if (inWater) {
-            // Enter swim if deep enough
-            if (!wasSwimming && distToGround > 1.2) {
+        const waterSurface = WATER_LEVEL;
+        const submergedAmount = waterSurface - (y - radius); // How much of the body is below water level
+        const inWater = submergedAmount > 0;
+        
+        // Hysteresis for swimming state
+        // Enter swim if significantly submerged and not touching ground (or deep enough)
+        if (!isSwimmingRef.current) {
+            if (inWater && submergedAmount > radius * 1.2 && !touchingGround) {
                 isSwimmingRef.current = true;
-            } 
-            // Exit swim if hitting ground (wading)
-            else if (wasSwimming && distToGround < 1.0) {
-                isSwimmingRef.current = false;
-                lastJumpTime.current = state.clock.elapsedTime;
-                
-                // BIG HOP to clear the bank - Impulse based
-                // Push forward and UP
-                const exitForce = 2200; // Reduced from 4000 to prevent tunneling
-                const exitLift = 1800;  // Reduced from 3000 to prevent tunneling
-                
-                // If not moving, jump forward relative to rotation
-                let jumpDir = moveVector.clone();
-                if (jumpDir.lengthSq() < 0.1) {
-                    jumpDir.set(Math.sin(currentRotationY.current), 0, Math.cos(currentRotationY.current));
-                }
-                
-                api.applyImpulse(
-                    [jumpDir.x * exitForce, exitLift, jumpDir.z * exitForce],
-                    [x, y, z] // Apply at center of mass
-                );
             }
         } else {
-            isSwimmingRef.current = false;
+            // Exit swim if we touch ground in shallow water
+            if (touchingGround && submergedAmount < radius) {
+                isSwimmingRef.current = false;
+            }
         }
+        
         const isSwimming = isSwimmingRef.current;
 
-        // 2. Buoyancy
+        // 2. Buoyancy & Drag
         if (inWater) {
-             const depth = (WATER_LEVEL + 0.5) - y;
-             let buoyancyForce = 1500 + (depth * 3000);
+             // Buoyancy
+             // Calculate displacement ratio (0 to 1)
+             // Full buoyancy when fully submerged, partial when wading
+             const immersionRatio = Math.min(1, Math.max(0, submergedAmount / (radius * 2)));
              
-             // Reduce buoyancy if wading to allow gravity to hold us to the ground (for exiting)
-             if (!isSwimming) {
-                 buoyancyForce *= 0.7; 
+             let buoyancyForce = 2500 * immersionRatio; // Base buoyancy
+             
+             // Reduce buoyancy significantly when wading/exiting to allow traction
+             if (!isSwimming && touchingGround) {
+                 buoyancyForce *= 0.3; 
              }
 
              api.applyForce([0, buoyancyForce, 0], [x, y, z]); 
              
-             // Drag (Vertical)
-             const drag = velocity.current[1] * 400;
-             api.applyForce([0, -drag, 0], [x, y, z]);
+             // Drag (Vertical & Horizontal)
+             const dragFactor = 200 * immersionRatio;
+             api.applyForce(
+                 [-velocity.current[0] * dragFactor, -velocity.current[1] * dragFactor, -velocity.current[2] * dragFactor], 
+                 [x, y, z]
+             );
         }
 
-        // 3. Movement (Force-based to prevent jitter)
-        const mass = 100;
-        
+        // 3. Movement Control
         if (isSwimming) {
              // --- Swimming Movement ---
              const riverW = getRiverWidth(z);
              const flowSpeed = 80 / Math.max(1, riverW); 
              
-             api.linearDamping.set(0.9); 
+             api.linearDamping.set(0.5); // Higher damping in water
              
-             const swimSpeed = 22;
+             const swimSpeed = 20;
              
              if (isMoving) {
                  const targetVx = moveVector.x * swimSpeed;
@@ -259,44 +251,33 @@ export const Woodchuck = () => {
                  const diffX = targetVx - currentVx;
                  const diffZ = targetVz - currentVz;
                  
-                 const forceFactor = 300; // Responsive swimming
+                 const forceFactor = 200; 
                  api.applyForce([diffX * forceFactor, 0, diffZ * forceFactor], [x, y, z]);
 
-                 // Vertical boost to help climb banks
-                 if (distToGround < 2.5) {
-                     api.applyForce([0, 2000, 0], [x, y, z]); // Lift force
+                 // Vertical swim control (Surface sticking)
+                 // If deep, push up slightly to stay near surface
+                 if (y < waterSurface - 0.5) {
+                     api.applyForce([0, 500, 0], [x, y, z]);
                  }
              } else {
-                 // Drift
+                 // Drift with flow
                  const targetVz = flowSpeed * 0.5;
                  const diffZ = targetVz - velocity.current[2];
-                 api.applyForce([0, 0, diffZ * 100], [x, y, z]);
+                 api.applyForce([0, 0, diffZ * 50], [x, y, z]);
              }
              
-             if (visualRef.current) {
-                 // Handled at end of frame
-             }
         } else {
-             // --- Walking / Wading Movement ---
+             // --- Walking / Land Movement ---
              api.linearDamping.set(0.1); 
              
-             const walkSpeed = 30;
+             const walkSpeed = 25;
              
-             // Safety net
+             // Safety net - Reset if fallen through world
              if (y < terrainH - 10) {
                  api.position.set(x, terrainH + 2, z);
                  api.velocity.set(0, 0, 0);
              } else {
-                 const timeSinceJump = state.clock.elapsedTime - lastJumpTime.current;
                  
-                 // Gravity Assist - Only if NOT moving up (jumping/climbing)
-                 // And not in water (to allow easy exit)
-                 // And not recently jumped
-                 // Increased threshold to > 0.8 (radius is 0.6) so it doesn't crush us while standing
-                 if (distToGround > 0.8 && !inWater && velocity.current[1] <= 0.5 && timeSinceJump > 1.0) {
-                     api.applyForce([0, -1500, 0], [x, y, z]); 
-                 }
-
                  if (isMoving) {
                      const targetVx = moveVector.x * walkSpeed;
                      const targetVz = moveVector.z * walkSpeed;
@@ -307,31 +288,32 @@ export const Woodchuck = () => {
                      const diffX = targetVx - currentVx;
                      const diffZ = targetVz - currentVz;
                      
-                     const forceFactor = 500; // Strong control on land
+                     const forceFactor = 400; 
                      api.applyForce([diffX * forceFactor, 0, diffZ * forceFactor], [x, y, z]);
                      
-                     // Flow effect while wading
-                     if (inWater) {
-                         const riverW = getRiverWidth(z);
-                         const flowZ = (80 / Math.max(1, riverW)) * 0.2; 
-                         api.applyForce([0, 0, flowZ * 100], [x, y, z]);
+                     // Helper force for slopes:
+                     // If moving and touching ground, apply a slight upward force to help step over geometry
+                     // This replaces the "Jump" - it's a continuous "step up" force
+                     if (touchingGround) {
+                         // Only apply if we are actually trying to move
+                         api.applyForce([0, 500, 0], [x, y, z]);
                      }
                      
-                     // Downward force to stick to slopes (extra stickiness)
-                     // DISABLED if moving up fast (jumping out of water)
-                     if (distToGround < 2.0 && velocity.current[1] > -1 && velocity.current[1] < 2 && !inWater && timeSinceJump > 0.5) {
-                         api.applyForce([0, -1000, 0], [x, y, z]);
+                     // Flow effect while wading (reduced)
+                     if (inWater) {
+                         const riverW = getRiverWidth(z);
+                         const flowZ = (80 / Math.max(1, riverW)) * 0.1; 
+                         api.applyForce([0, 0, flowZ * 50], [x, y, z]);
                      }
+                     
                  } else {
-                     // Stop quickly
+                     // Stop quickly (Braking)
                      const currentVx = velocity.current[0];
                      const currentVz = velocity.current[2];
-                     const forceFactor = 400;
-                     api.applyForce([-currentVx * forceFactor, 0, -currentVz * forceFactor], [x, y, z]);
+                     const brakeForce = 300;
+                     api.applyForce([-currentVx * brakeForce, 0, -currentVz * brakeForce], [x, y, z]);
                  }
              }
-             
-             // End of land physics
         }
         
         // Update Visual Position & Rotation (Runs for both states)
