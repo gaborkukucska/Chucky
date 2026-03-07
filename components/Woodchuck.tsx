@@ -201,8 +201,8 @@ export const Woodchuck = () => {
                 
                 // BIG HOP to clear the bank - Impulse based
                 // Push forward and UP
-                const exitForce = 4000; // Increased from 2000
-                const exitLift = 3000;  // Increased from 1500
+                const exitForce = 2200; // Reduced from 4000 to prevent tunneling
+                const exitLift = 1800;  // Reduced from 3000 to prevent tunneling
                 
                 // If not moving, jump forward relative to rotation
                 let jumpDir = moveVector.clone();
@@ -283,7 +283,7 @@ export const Woodchuck = () => {
              const walkSpeed = 30;
              
              // Safety net
-             if (y < terrainH - 5) {
+             if (y < terrainH - 10) {
                  api.position.set(x, terrainH + 2, z);
                  api.velocity.set(0, 0, 0);
              } else {
@@ -292,8 +292,9 @@ export const Woodchuck = () => {
                  // Gravity Assist - Only if NOT moving up (jumping/climbing)
                  // And not in water (to allow easy exit)
                  // And not recently jumped
-                 if (distToGround > 0.5 && !inWater && velocity.current[1] <= 0.5 && timeSinceJump > 1.0) {
-                     api.applyForce([0, -3000, 0], [x, y, z]); 
+                 // Increased threshold to > 0.8 (radius is 0.6) so it doesn't crush us while standing
+                 if (distToGround > 0.8 && !inWater && velocity.current[1] <= 0.5 && timeSinceJump > 1.0) {
+                     api.applyForce([0, -1500, 0], [x, y, z]); 
                  }
 
                  if (isMoving) {
