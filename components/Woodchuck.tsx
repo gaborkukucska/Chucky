@@ -182,17 +182,14 @@ export const Woodchuck = () => {
              
              api.linearDamping.set(0.8); // High damping in water
              
-             const swimSpeed = 20;
+             const swimSpeed = 10;
              
              if (isMoving) {
                  const targetVx = moveVector.x * swimSpeed;
                  const targetVz = moveVector.z * swimSpeed + flowSpeed * 0.5;
                  
-                 const diffX = targetVx - vx;
-                 const diffZ = targetVz - vz;
-                 
-                 const forceFactor = 150; 
-                 api.applyForce([diffX * forceFactor, 0, diffZ * forceFactor], [x, y, z]);
+                 // Use velocity directly for swimming to ensure consistent speed
+                 api.velocity.set(targetVx, vy, targetVz);
 
                  // Surface sticking
                  if (y < waterSurface - 0.5) {
@@ -201,8 +198,7 @@ export const Woodchuck = () => {
              } else {
                  // Drift
                  const targetVz = flowSpeed * 0.5;
-                 const diffZ = targetVz - vz;
-                 api.applyForce([0, 0, diffZ * 30], [x, y, z]);
+                 api.velocity.set(vx * 0.95, vy, targetVz);
              }
              
         } else {
@@ -217,19 +213,14 @@ export const Woodchuck = () => {
              if (isMoving) {
                  api.linearDamping.set(0.1); 
                  
-                 const walkSpeed = 25;
+                 const walkSpeed = 15;
                  
-                 // Simple horizontal movement (No slope projection)
+                 // Simple horizontal movement using velocity for absolute control
                  const targetVx = moveVector.x * walkSpeed;
                  const targetVz = moveVector.z * walkSpeed;
                  
-                 const diffX = targetVx - vx;
-                 const diffZ = targetVz - vz;
-                 
-                 // High force factor for snappy response
-                 const forceFactor = 2000; 
-                 
-                 api.applyForce([diffX * forceFactor, 0, diffZ * forceFactor], [x, y, z]);
+                 // Only override X and Z velocity, keep Y for gravity/jumping
+                 api.velocity.set(targetVx, vy, targetVz);
                  
                  // Flow effect while wading (reduced)
                  if (inWater) {
@@ -243,7 +234,8 @@ export const Woodchuck = () => {
                  api.linearDamping.set(0.95); 
                  
                  if (vx*vx + vz*vz > 0.1) {
-                     api.applyForce([-vx * 200, 0, -vz * 200], [x, y, z]);
+                     // Fast stop
+                     api.velocity.set(vx * 0.8, vy, vz * 0.8);
                  }
              }
         }
