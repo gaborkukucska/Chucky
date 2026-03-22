@@ -132,123 +132,99 @@ export const Woodchuck = () => {
 
         // --- Physics & Movement ---
         
-        // 1. Determine State
-        const terrainH = calculateTerrainHeight(x, z);
-        const distToGround = y - terrainH; 
         const radius = 0.6;
-        const touchingGround = distToGround < (radius + 0.2);
+        const terrainH = calculateTerrainHeight(x, z);
+        const minHeight = terrainH + radius;
         
-        const waterSurface = WATER_LEVEL;
-        const submergedAmount = waterSurface - (y - radius);
-        const inWater = submergedAmount > 0;
-        
-        // Hysteresis for swimming state
-        if (!isSwimmingRef.current) {
-            if (inWater && submergedAmount > radius * 1.2 && !touchingGround) {
-                isSwimmingRef.current = true;
-            }
-        } else {
-            if (touchingGround && submergedAmount < radius) {
-                isSwimmingRef.current = false;
-            }
-        }
-        
-        const isSwimming = isSwimmingRef.current;
+        let currentY = y;
+        let currentVy = vy;
 
-        // 2. Buoyancy & Drag
+        // 1. Manual Terrain Collision (Removed)
+        // Let the physics engine handle terrain collisions to prevent massive repulsive impulses.
+        
+        // Fallback to prevent falling through the world
+        if (currentY < -50) {
+            currentY = 10;
+            api.position.set(0, 10, 20);
+            api.velocity.set(0, 0, 0);
+        }
+
+        // 2. Determine State
+        const waterSurface = WATER_LEVEL;
+        const submergedAmount = waterSurface - (currentY - radius);
+        const inWater = submergedAmount > 0;
+        const touchingGround = (currentY - terrainH) < (radius + 0.2);
+
+        // 3. Buoyancy & Drag
         if (inWater) {
              const immersionRatio = Math.min(1, Math.max(0, submergedAmount / (radius * 2)));
              let buoyancyForce = 2500 * immersionRatio; 
              
-             // Reduce buoyancy when wading to allow traction
-             if (!isSwimming && touchingGround) {
-                 buoyancyForce *= 0.2; 
+             // Reduce buoyancy when touching ground to allow walking out of water
+             if (touchingGround) {
+                 buoyancyForce *= 0.5; 
              }
 
-             api.applyForce([0, buoyancyForce, 0], [x, y, z]); 
+             api.applyForce([0, buoyancyForce, 0], [x, currentY, z]); 
              
+             // Only apply drag to Y axis to dampen vertical bobbing.
+             // Horizontal drag is naturally handled by the proportional velocity controller.
              const dragFactor = 150 * immersionRatio;
              api.applyForce(
-                 [-vx * dragFactor, -vy * dragFactor, -vz * dragFactor], 
-                 [x, y, z]
+                 [0, -currentVy * dragFactor, 0], 
+                 [x, currentY, z]
              );
         }
 
-        // 3. Movement Control
-        if (isSwimming) {
-             // --- Swimming ---
-             const riverW = getRiverWidth(z);
-             const flowSpeed = 80 / Math.max(1, riverW); 
-             
-             api.linearDamping.set(0.8); // High damping in water
-             
-             const swimSpeed = 10;
-             
-             if (isMoving) {
-                 const targetVx = moveVector.x * swimSpeed;
-                 const targetVz = moveVector.z * swimSpeed + flowSpeed * 0.5;
-                 
-                 // Use velocity directly for swimming to ensure consistent speed
-                 api.velocity.set(targetVx, vy, targetVz);
+        // 4. Movement Control
+        const riverW = getRiverWidth(z);
+        const flowSpeed = 80 / Math.max(1, riverW); 
+        
+        let targetVx = 0;
+        let targetVz = 0;
 
-                 // Surface sticking
-                 if (y < waterSurface - 0.5) {
-                     api.applyForce([0, 300, 0], [x, y, z]);
-                 }
-             } else {
-                 // Drift
-                 const targetVz = flowSpeed * 0.5;
-                 api.velocity.set(vx * 0.95, vy, targetVz);
-             }
-             
+        if (isMoving) {
+            // Slower in water unless touching ground (wading)
+            const speed = (inWater && !touchingGround) ? 12 : 22;
+            
+            targetVx = moveVector.x * speed;
+            targetVz = moveVector.z * speed;
+            
+            // Add river flow if in water
+            if (inWater && !touchingGround) {
+                targetVz += flowSpeed * 0.5;
+            }
         } else {
-             // --- Walking / Land ---
-             
-             // Safety net
-             if (y < terrainH - 10) {
-                 api.position.set(x, terrainH + 2, z);
-                 api.velocity.set(0, 0, 0);
-             }
-
-             if (isMoving) {
-                 api.linearDamping.set(0.1); 
-                 
-                 const walkSpeed = 15;
-                 
-                 // Simple horizontal movement using velocity for absolute control
-                 const targetVx = moveVector.x * walkSpeed;
-                 const targetVz = moveVector.z * walkSpeed;
-                 
-                 // Only override X and Z velocity, keep Y for gravity/jumping
-                 api.velocity.set(targetVx, vy, targetVz);
-                 
-                 // Flow effect while wading (reduced)
-                 if (inWater) {
-                     const riverW = getRiverWidth(z);
-                     const flowZ = (80 / Math.max(1, riverW)) * 0.1; 
-                     api.applyForce([0, 0, flowZ * 50], [x, y, z]);
-                 }
-                 
-             } else {
-                 // --- Braking ---
-                 api.linearDamping.set(0.95); 
-                 
-                 if (vx*vx + vz*vz > 0.1) {
-                     // Fast stop
-                     api.velocity.set(vx * 0.8, vy, vz * 0.8);
-                 }
-             }
+            if (inWater && !touchingGround) {
+                // Drift with river
+                targetVz = flowSpeed * 0.5;
+            }
         }
+
+        // Proportional Velocity Control (PD Controller)
+        // This applies force to reach the target velocity, respecting collisions and slopes naturally.
+        const mass = 100;
+        let responseFactor = touchingGround ? 8 : 2; // Faster response on ground, sluggish in water
+        if (!isMoving && touchingGround) {
+            responseFactor = 15; // Stronger braking to prevent sliding on slopes
+        }
+        
+        const forceX = (targetVx - vx) * mass * responseFactor;
+        const forceZ = (targetVz - vz) * mass * responseFactor;
+        
+        // Apply the movement force
+        api.applyForce([forceX, 0, forceZ], [x, currentY, z]);
         
         // Update Visual Position & Rotation
         if (visualRef.current) {
-             // Direct mapping for responsiveness (no lerp)
-             visualRef.current.position.set(x, y, z);
+             visualRef.current.position.set(x, currentY, z);
              
              visualRef.current.rotation.order = 'YXZ';
-             if (isSwimming) {
+             if (inWater && !touchingGround) {
+                 // Swim rotation (flat)
                  visualRef.current.rotation.set(-Math.PI / 2, currentRotationY.current, 0);
              } else {
+                 // Walk rotation (upright)
                  visualRef.current.rotation.set(0, currentRotationY.current, 0);
              }
         }
@@ -265,7 +241,6 @@ export const Woodchuck = () => {
         }
 
         // Interaction Logic (Tree / Destroy)
-        // (Kept same as before, just ensuring it runs)
         if (input.isBuilding) {
              if (isPlacementMode) {
                  const offset = 3.0;
