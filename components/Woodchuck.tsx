@@ -17,12 +17,11 @@ export const Woodchuck = () => {
     
     // Physics Body
     const [ref, api] = useSphere(() => ({ 
+        type: 'Kinematic',
         mass: 100, 
         position: [0, 10, 20], 
         args: [0.6], 
         fixedRotation: true, 
-        linearDamping: 0.5, // Increased base damping for stability
-        friction: 0.0, // Keep 0 friction to prevent wall sticking, handle sliding via damping
         userData: { tag: 'player' },
         onCollide: (e) => {
             if (e.body && e.body.userData && (e.body.userData as any).tag === 'structure') {
@@ -41,7 +40,7 @@ export const Woodchuck = () => {
         trees, damageTree, activeTreeId, setActiveTree, 
         setDestroyTarget, destroyTargetId, placedStructures,
         isPlacementMode, updatePlacementRotation, placeStructure,
-        cameraMode
+        cameraMode, tickDestruction
     } = useGameStore();
     
     const pos = useRef([0, 10, 20]);
@@ -52,7 +51,6 @@ export const Woodchuck = () => {
         
         const sub = api.position.subscribe(v => {
             pos.current = v;
-            currentWoodchuckPos.set(v[0], v[1], v[2]);
         });
         // @ts-ignore
         window.woodchuckApi = api;
@@ -76,6 +74,8 @@ export const Woodchuck = () => {
     const forward = useMemo(() => new THREE.Vector3(), []);
     const right = useMemo(() => new THREE.Vector3(), []);
 
+    const internalPos = useRef([0, 10, 20]);
+
     useFrame((state, delta) => {
         if (isPaused) {
             api.velocity.set(0, 0, 0);
@@ -83,9 +83,16 @@ export const Woodchuck = () => {
             return;
         }
         
-        const [x, y, z] = pos.current;
-        const [vx, vy, vz] = velocity.current;
-        currentWoodchuckPos.set(x, y, z);
+        // Use internal position to avoid double-movement from physics engine integrating velocity
+        let [x, y, z] = internalPos.current;
+        
+        // Fallback: If somehow below world, respawn
+        if (y < -20) {
+            internalPos.current = [0, 10, 20];
+            api.position.set(0, 10, 20);
+            api.velocity.set(0, 0, 0);
+            return;
+        }
         
         // Sync to store
         if (state.clock.elapsedTime % 0.1 < 0.02) { 
@@ -130,94 +137,99 @@ export const Woodchuck = () => {
             turnSpeed.current = 0.05; 
         }
 
-        // --- Physics & Movement ---
-        
+        // --- Custom Kinematic Movement ---
         const radius = 0.6;
-        const terrainH = calculateTerrainHeight(x, z);
-        const minHeight = terrainH + radius;
         
-        let currentY = y;
-        let currentVy = vy;
-
-        // 1. Manual Terrain Collision (Removed)
-        // Let the physics engine handle terrain collisions to prevent massive repulsive impulses.
+        // 1. Calculate desired horizontal movement
+        let nextX = x;
+        let nextZ = z;
         
-        // Fallback to prevent falling through the world
-        if (currentY < -50) {
-            currentY = 10;
-            api.position.set(0, 10, 20);
-            api.velocity.set(0, 0, 0);
-        }
-
-        // 2. Determine State
-        const waterSurface = WATER_LEVEL;
-        const submergedAmount = waterSurface - (currentY - radius);
-        const inWater = submergedAmount > 0;
-        const touchingGround = (currentY - terrainH) < (radius + 0.2);
-
-        // 3. Buoyancy & Drag
-        if (inWater) {
-             const immersionRatio = Math.min(1, Math.max(0, submergedAmount / (radius * 2)));
-             let buoyancyForce = 2500 * immersionRatio; 
-             
-             // Reduce buoyancy when touching ground to allow walking out of water
-             if (touchingGround) {
-                 buoyancyForce *= 0.5; 
-             }
-
-             api.applyForce([0, buoyancyForce, 0], [x, currentY, z]); 
-             
-             // Only apply drag to Y axis to dampen vertical bobbing.
-             // Horizontal drag is naturally handled by the proportional velocity controller.
-             const dragFactor = 150 * immersionRatio;
-             api.applyForce(
-                 [0, -currentVy * dragFactor, 0], 
-                 [x, currentY, z]
-             );
-        }
-
-        // 4. Movement Control
         const riverW = getRiverWidth(z);
         const flowSpeed = 80 / Math.max(1, riverW); 
         
-        let targetVx = 0;
-        let targetVz = 0;
+        // Determine state
+        const terrainH_current = calculateTerrainHeight(x, z);
+        const inWater = terrainH_current < WATER_LEVEL;
+        const touchingGround = (y - terrainH_current) < (radius + 0.2);
 
         if (isMoving) {
-            // Slower in water unless touching ground (wading)
             const speed = (inWater && !touchingGround) ? 12 : 22;
-            
-            targetVx = moveVector.x * speed;
-            targetVz = moveVector.z * speed;
-            
-            // Add river flow if in water
-            if (inWater && !touchingGround) {
-                targetVz += flowSpeed * 0.5;
-            }
-        } else {
-            if (inWater && !touchingGround) {
-                // Drift with river
-                targetVz = flowSpeed * 0.5;
-            }
+            nextX += moveVector.x * speed * delta;
+            nextZ += moveVector.z * speed * delta;
         }
 
-        // Proportional Velocity Control (PD Controller)
-        // This applies force to reach the target velocity, respecting collisions and slopes naturally.
-        const mass = 100;
-        let responseFactor = touchingGround ? 8 : 2; // Faster response on ground, sluggish in water
-        if (!isMoving && touchingGround) {
-            responseFactor = 15; // Stronger braking to prevent sliding on slopes
+        if (inWater && !touchingGround) {
+            // Drift with river
+            nextZ += flowSpeed * 0.5 * delta;
         }
+
+        // 2. Manual Collision Detection (Trees, Boulders, Structures, Map Bounds)
+        let allowedX = nextX;
+        let allowedZ = nextZ;
+        const playerRadius = 0.6;
+
+        // Map Bounds
+        const MAP_LIMIT = 145;
+        if (allowedX > MAP_LIMIT) allowedX = MAP_LIMIT;
+        if (allowedX < -MAP_LIMIT) allowedX = -MAP_LIMIT;
+        if (allowedZ > MAP_LIMIT) allowedZ = MAP_LIMIT;
+        if (allowedZ < -MAP_LIMIT) allowedZ = -MAP_LIMIT;
+
+        const resolveCollision = (objX: number, objZ: number, minDist: number) => {
+            const dx = allowedX - objX;
+            const dz = allowedZ - objZ;
+            const dist = Math.sqrt(dx*dx + dz*dz);
+            if (dist < minDist) {
+                if (dist > 0.001) {
+                    const overlap = minDist - dist;
+                    allowedX += (dx / dist) * overlap;
+                    allowedZ += (dz / dist) * overlap;
+                } else {
+                    // Exact overlap fallback
+                    allowedX += minDist;
+                }
+            }
+        };
+
+        trees.forEach(tree => {
+            if (!tree.isFelled) resolveCollision(tree.position[0], tree.position[2], playerRadius + 0.8);
+        });
+        useGameStore.getState().boulders.forEach(boulder => {
+            resolveCollision(boulder.position[0], boulder.position[2], playerRadius + boulder.scale);
+        });
+        placedStructures.forEach(struct => {
+            resolveCollision(struct.position[0], struct.position[2], playerRadius + 1.5);
+        });
+
+        // 3. Calculate Y Position (Terrain following & Buoyancy)
+        const terrainH_next = calculateTerrainHeight(allowedX, allowedZ);
+        let targetY = terrainH_next + radius;
         
-        const forceX = (targetVx - vx) * mass * responseFactor;
-        const forceZ = (targetVz - vz) * mass * responseFactor;
+        if (terrainH_next < WATER_LEVEL) {
+            // In water, float at surface, but don't go below terrain
+            targetY = Math.max(terrainH_next + radius, WATER_LEVEL + 0.2);
+        }
+
+        // Smooth Y transition for walking up/down slopes and bobbing in water
+        const finalY = THREE.MathUtils.lerp(y, targetY, 15 * delta);
+
+        // 4. Apply to Physics Engine
+        // We set velocity so the kinematic body moves to the exact desired position and can push dynamic objects (logs)
+        const safeDelta = Math.max(0.001, delta);
+        const vx_kinematic = (allowedX - x) / safeDelta;
+        const vy_kinematic = (finalY - y) / safeDelta;
+        const vz_kinematic = (allowedZ - z) / safeDelta;
         
-        // Apply the movement force
-        api.applyForce([forceX, 0, forceZ], [x, currentY, z]);
+        internalPos.current = [allowedX, finalY, allowedZ];
+        currentWoodchuckPos.set(allowedX, finalY, allowedZ);
+        tickDestruction(delta);
+        
+        api.position.set(allowedX, finalY, allowedZ);
+        api.velocity.set(vx_kinematic, vy_kinematic, vz_kinematic);
         
         // Update Visual Position & Rotation
         if (visualRef.current) {
-             visualRef.current.position.set(x, currentY, z);
+             visualRef.current.position.set(allowedX, finalY, allowedZ);
              
              visualRef.current.rotation.order = 'YXZ';
              if (inWater && !touchingGround) {
@@ -232,8 +244,8 @@ export const Woodchuck = () => {
         // Update Placement Preview
         if (isPlacementMode && previewRef.current) {
              const offset = 3.0;
-             const previewX = x + Math.sin(currentRotationY.current) * offset;
-             const previewZ = z + Math.cos(currentRotationY.current) * offset;
+             const previewX = allowedX + Math.sin(currentRotationY.current) * offset;
+             const previewZ = allowedZ + Math.cos(currentRotationY.current) * offset;
              const previewY = calculateTerrainHeight(previewX, previewZ);
              
              previewRef.current.position.set(previewX, previewY, previewZ);
@@ -242,10 +254,11 @@ export const Woodchuck = () => {
 
         // Interaction Logic (Tree / Destroy)
         if (input.isBuilding) {
+             if (destroyTargetId !== null) setDestroyTarget(null);
              if (isPlacementMode) {
                  const offset = 3.0;
-                 const previewX = x + Math.sin(currentRotationY.current) * offset;
-                 const previewZ = z + Math.cos(currentRotationY.current) * offset;
+                 const previewX = allowedX + Math.sin(currentRotationY.current) * offset;
+                 const previewZ = allowedZ + Math.cos(currentRotationY.current) * offset;
                  const previewY = calculateTerrainHeight(previewX, previewZ);
                  
                  placeStructure({
@@ -260,24 +273,35 @@ export const Woodchuck = () => {
             let foundTree = false;
             trees.forEach(tree => {
                 if (tree.isFelled) return;
-                const dx = x - tree.position[0];
-                const dz = z - tree.position[2];
+                const dx = allowedX - tree.position[0];
+                const dz = allowedZ - tree.position[2];
                 if (dx*dx + dz*dz < 4.0) { 
                     foundTree = true;
                     setActiveTree(tree.id);
                 }
             });
             if (!foundTree && activeTreeId !== null) setActiveTree(null);
-        }
-        
-        if (destroyTargetId) {
-            const target = placedStructures.find(s => s.id === destroyTargetId);
-            if (target) {
-                const dx = x - target.position[0];
-                const dz = z - target.position[2];
-                if (dx*dx + dz*dz > 64) setDestroyTarget(null);
-            } else {
-                setDestroyTarget(null);
+            
+            // Check structures for destroying
+            let foundStruct = false;
+            placedStructures.forEach(struct => {
+                const dx = allowedX - struct.position[0];
+                const dz = allowedZ - struct.position[2];
+                if (dx*dx + dz*dz < 9.0) { // 3 units radius
+                    foundStruct = true;
+                    setDestroyTarget(struct.id);
+                }
+            });
+            
+            if (!foundStruct && destroyTargetId !== null) {
+                const target = placedStructures.find(s => s.id === destroyTargetId);
+                if (target) {
+                    const dx = allowedX - target.position[0];
+                    const dz = allowedZ - target.position[2];
+                    if (dx*dx + dz*dz > 64) setDestroyTarget(null);
+                } else {
+                    setDestroyTarget(null);
+                }
             }
         }
     });

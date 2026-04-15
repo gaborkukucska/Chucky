@@ -1,0 +1,1 @@
+Fixed Chucky's movement by implementing a robust kinematic controller, replacing the problematic physics-based movement. Added manual collision detection, terrain following, and water interaction logic. Fixed structure destruction and placement preview.

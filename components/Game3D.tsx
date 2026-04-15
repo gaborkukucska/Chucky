@@ -57,7 +57,7 @@ export const Game3D = () => {
     // Audio Init
     useEffect(() => {
         const handleInteract = () => {
-            audioService.init();
+            audioService.resume();
             window.removeEventListener('click', handleInteract);
             window.removeEventListener('keydown', handleInteract);
             window.removeEventListener('touchstart', handleInteract);
