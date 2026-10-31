@@ -23,7 +23,7 @@ const ACCELERATION = 8;      // 1/s - how quickly Chucky reaches the target spee
 const DECELERATION = 12;     // 1/s - how quickly Chucky stops when input is released
 const RIVER_DRIFT = 0.35;    // Fraction of the river flow applied while swimming
 const TURN_RATE = 10;        // 1/s - how quickly the model turns to face the movement direction
-const STEER_RATE = 2.8;      // rad/s - turning speed with the stick in the 3rd-person camera
+const STEER_RATE = 1.8;      // rad/s - max turning speed in the 3rd-person camera (only used there)
 const BACKWARD_SPEED = 0.5;  // Walking backwards (3rd-person camera) is slower
 const VERTICAL_SMOOTHING = 15; // 1/s - terrain following / bobbing smoothing
 const MAP_LIMIT = 145;
@@ -272,7 +272,8 @@ export const Woodchuck = () => {
             const axisMax = Math.max(Math.abs(input.x), Math.abs(input.y)) || 1;
             const steer = Math.abs(input.x) > 0.1 ? (input.x / axisMax) * mag : 0;
             const throttle = Math.abs(input.y) > 0.1 ? (-input.y / axisMax) * mag : 0; // Stick up = forward
-            currentRotationY.current -= steer * STEER_RATE * delta;
+            // Response curve: small pushes turn gently, a full push turns at STEER_RATE
+            currentRotationY.current -= steer * Math.abs(steer) * STEER_RATE * delta;
             const dir = throttle < 0 ? -1 : 1;
             moveDir.set(Math.sin(currentRotationY.current) * dir, 0, Math.cos(currentRotationY.current) * dir);
             inputMag = Math.min(1, Math.abs(throttle)) * (throttle < 0 ? BACKWARD_SPEED : 1);
