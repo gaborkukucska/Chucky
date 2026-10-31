@@ -596,8 +596,12 @@ const STRUCTURE_LOG_GEOMETRY = new THREE.CylinderGeometry(STRUCTURE_LOG_RADIUS, 
 const BARK_MATERIAL = new THREE.MeshStandardMaterial({ color: '#5D4037' });
 const END_GRAIN_MATERIAL = new THREE.MeshStandardMaterial({ color: '#8D6E63' });
 const STRUCTURE_MATERIALS = [BARK_MATERIAL, END_GRAIN_MATERIAL, END_GRAIN_MATERIAL];
-const PREVIEW_VALID_MATERIAL = new THREE.MeshBasicMaterial({ color: '#00FFFF', transparent: true, opacity: 0.45, depthTest: false, depthWrite: false });
-const PREVIEW_INVALID_MATERIAL = new THREE.MeshBasicMaterial({ color: '#FF3B30', transparent: true, opacity: 0.45, depthTest: false, depthWrite: false });
+// Placement ghost: depth-tested so anything in front of it (Chucky, trees, terrain) hides it,
+// and depth-writing so grass behind it doesn't show through. It's drawn before the water
+// (PREVIEW_RENDER_ORDER), so parts below the river surface are still seen through the water.
+const PREVIEW_VALID_MATERIAL = new THREE.MeshBasicMaterial({ color: '#00FFFF', transparent: true, opacity: 0.45, depthTest: true, depthWrite: true });
+const PREVIEW_INVALID_MATERIAL = new THREE.MeshBasicMaterial({ color: '#FF3B30', transparent: true, opacity: 0.45, depthTest: true, depthWrite: true });
+const PREVIEW_RENDER_ORDER = -1; // First of the see-through objects (water, grass are 0)
 
 type BlueprintLog = Blueprint['logs'][number];
 
@@ -738,7 +742,7 @@ export const PreviewStructureOverlay = forwardRef<THREE.Group, { valid?: boolean
 
     return (
         <group ref={ref}>
-            <InstancedLogs logs={blueprint.logs} material={valid ? PREVIEW_VALID_MATERIAL : PREVIEW_INVALID_MATERIAL} renderOrder={10} />
+            <InstancedLogs logs={blueprint.logs} material={valid ? PREVIEW_VALID_MATERIAL : PREVIEW_INVALID_MATERIAL} renderOrder={PREVIEW_RENDER_ORDER} />
         </group>
     );
 });

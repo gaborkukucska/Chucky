@@ -2,9 +2,18 @@
 
 All notable changes to Woodchuck Dam Builder 3000 (*Chucky*). Newest first.
 
-## 2026-10-31: Regression fixes and new features (rounds 1–7)
+## 2026-10-31: Regression fixes and new features (rounds 1–8)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 8: Build ghost drawn in the right order
+
+The see-through preview had depth testing switched off and was drawn last, so it was painted over everything, including Chucky standing in front of it.
+- It is now depth-tested, so Chucky, trees, rocks and terrain in front of it hide it, just as they would hide a real structure.
+- It writes depth, so grass behind it no longer shows through.
+- It is drawn before the water, so the parts below the river surface are still visible through the water.
+
+Files: `components/WorldObjects.tsx`, `CHANGELOG.md`.
 
 ### Round 7: Building preview fix, placement controls out of the way
 
