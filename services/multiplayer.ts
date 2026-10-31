@@ -88,6 +88,7 @@ const logToWire = (l: LooseLogData, now: number) => ({
     rotation: l.rotation.map(round),
     value: l.value ?? 1,
     ...(l.velocity ? { velocity: l.velocity.map(round) } : {}),
+    ...(l.spin ? { spin: l.spin.map(round) } : {}),
     ...(l.thrown ? { thrown: true, team: l.team } : {}),
     ...(l.woodOnly ? { woodOnly: true } : {}),
     age: Math.max(0, now - l.createdAt),
@@ -107,6 +108,7 @@ export const logFromWire = (w: any, now: number): LooseLogData => {
         ...(w.thrown ? { thrown: true, thrownBy: w.thrownBy, team: w.team } : {}),
         ...(w.woodOnly ? { woodOnly: true } : {}),
         ...(landed ? { settled: true } : (w.velocity ? { velocity: w.velocity as Vec3 } : {})),
+        ...(!landed && Array.isArray(w.spin) ? { spin: w.spin as Vec3 } : {}),
     };
 };
 

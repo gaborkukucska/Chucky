@@ -2,9 +2,35 @@
 
 All notable changes to Woodchuck Dam Builder 3000 (*Chucky*). Newest first.
 
-## 2026-10-31: Regression fixes and new features (rounds 1–11)
+## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–12)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 12: Chucky the beaver and his fact nuggets
+
+**Chucky is a beaver.** Woodchucks (groundhogs) don't fell trees or build dams; beavers do.
+- The start screen now says **Chucky the Beaver**.
+- His list of instructions is gone, replaced by a short hello from Chucky.
+- His model has a flat paddle tail and orange front teeth (beaver enamel has iron in it), and other players' Chuckies look the same.
+
+**Chucky's speech bubble.** At the start of your first game, Chucky explains the game, beginning with: *"By the way, I'm a beaver! Woodchucks don't actually 'chuck wood' LOL! My first fact nugget for you!"*
+- **As you play:** he shares beaver facts and myth-busters, triggered by progress such as trees felled, logs, swimming, the first night, structures built, throws, wolves chased off, score or day.
+- **Pacing:** facts come at most one every 40 seconds, and each one only once per device.
+- **Pausing:** a solo game pauses while the bubble is open; joint games don't pause.
+- **Controls:** Next ▶ / Skip, or Enter / Esc.
+- **Menu and Settings:** ☰ → 🦫 Chucky's tips replays the intro. ⚙️ Settings has a switch for fact nuggets and a button to hear all the facts again.
+
+**Editable facts.** All the text is in `public/chucky-facts.json`. Edit it and reload the game; there's no need to rebuild.
+- **Validation:** entries are checked when the game loads. Problems are skipped, with a message in the console.
+- **Fallback:** if the file can't be loaded, Chucky still gives his first line.
+
+**Short taps and spinning logs.** Holding the throw button now builds up speed as well as height:
+- a quick tap is a short toss of about 4 m, for wolves and bears close by
+- 1.2 s gives a lob of about 55 m
+
+Scatter is smaller on short tosses. Every thrown log spins randomly, and in a joint game it spins the same way for everyone.
+
+Files: `public/chucky-facts.json` and `services/facts.ts` (new), plus `types.ts`, `store.ts`, `App.tsx`, `components/Controls.tsx`, `components/Game3D.tsx`, `components/WorldObjects.tsx`, `components/Woodchuck.tsx`, `components/RemotePlayers.tsx`, `services/multiplayer.ts`, `server/multiplayerServer.ts`, `README.md`, `CHANGELOG.md`.
 
 ### Round 11: Aimed throws
 

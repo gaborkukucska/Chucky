@@ -33,6 +33,7 @@ export interface LooseLogData {
   settled?: boolean; // Restored from a save: no spawn "pop", keep the resting position
   value?: number;    // Logs this pickup is worth (demolition debris is bundled). Default 1
   velocity?: [number, number, number]; // Launch velocity (thrown) instead of the spawn "pop"
+  spin?: [number, number, number];     // Thrown: random spin while it flies (rad/s)
   thrown?: boolean;  // Thrown by a Chucky: hurts what it hits while flying; pick-up = wood only, no score
   // Joint games
   owner?: string;    // Player whose game simulates it and sends position corrections

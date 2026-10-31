@@ -133,13 +133,14 @@ const RemoteChucky = React.memo(({ id, name, team }: { id: string; name: string;
                         <meshStandardMaterial color="black" />
                     </mesh>
                     <mesh position={[0, 0.1, 0.35]}>
-                        <boxGeometry args={[0.2, 0.15, 0.05]} />
-                        <meshStandardMaterial color="white" />
+                        <boxGeometry args={[0.22, 0.16, 0.06]} />
+                        <meshStandardMaterial color="#F28C28" />
                     </mesh>
                 </group>
-                <mesh position={[0, -0.3, -0.5]} rotation={[-Math.PI / 4, 0, 0]} castShadow>
-                    <capsuleGeometry args={[0.15, 0.6, 4, 8]} />
-                    <meshStandardMaterial color="#4E342E" />
+                {/* Flat beaver paddle tail */}
+                <mesh position={[0, -0.8, -0.75]} rotation={[0.2, 0, 0]} scale={[1, 0.22, 1.6]} castShadow>
+                    <sphereGeometry args={[0.32, 14, 10]} />
+                    <meshStandardMaterial color="#3E2723" roughness={0.95} />
                 </mesh>
             </group>
             <sprite position={[0, 2.6, 0]} scale={[2.4, 0.6, 1]} renderOrder={20}>

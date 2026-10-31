@@ -356,7 +356,8 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
             const [vx, vy, vz] = data.velocity;
             const horizontal = Math.hypot(vx, vz) || 1;
             api.velocity.set(vx, vy, vz);
-            api.angularVelocity.set((vz / horizontal) * 12, 0, (-vx / horizontal) * 12);
+            if (data.spin) api.angularVelocity.set(data.spin[0], data.spin[1], data.spin[2]);
+            else api.angularVelocity.set((vz / horizontal) * 12, 0, (-vx / horizontal) * 12);
             return;
         }
         const angle = Math.random() * Math.PI * 2;

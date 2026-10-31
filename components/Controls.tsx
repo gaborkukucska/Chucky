@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useGameStore, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX, THROW_CHARGE_MS, throwLiftForCharge } from '../store';
+import { useGameStore, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX, THROW_CHARGE_MS, throwPowerForCharge } from '../store';
 import { throwAim } from '../globals';
+import { facts } from '../services/facts';
 
 // Hold to aim (higher the longer you hold), release to throw - touch button and keyboard
 const startThrowAim = () => {
@@ -10,7 +11,7 @@ const startThrowAim = () => {
 const releaseThrow = () => {
     if (!throwAim.charging) return;
     throwAim.charging = false;
-    useGameStore.getState().throwLog(throwLiftForCharge(performance.now() - throwAim.startedAt));
+    useGameStore.getState().throwLog(throwPowerForCharge(performance.now() - throwAim.startedAt));
 };
 const cancelThrowAim = () => {
     throwAim.charging = false;
@@ -218,7 +219,7 @@ const ThrowButton = () => {
                 />
                 <span className="relative text-2xl">🪵</span>
             </button>
-            <span className="text-[9px] font-bold text-white/80 uppercase tracking-wider drop-shadow">{!hasWood ? 'No logs' : aiming ? 'Aim higher…' : 'Hold to aim'}</span>
+            <span className="text-[9px] font-bold text-white/80 uppercase tracking-wider drop-shadow">{!hasWood ? 'No logs' : aiming ? 'Further…' : 'Tap or hold'}</span>
         </div>
     );
 };
@@ -437,10 +438,18 @@ if (typeof window !== 'undefined') {
             const s = useGameStore.getState();
             if (s.isPlacementMode) s.rotatePlacement(key === 'q' ? -Math.PI / 4 : Math.PI / 4);
         } else if (e.key === 'Enter') {
-            if (useGameStore.getState().isPlacementMode) setInput({ isBuilding: true });
+            const s = useGameStore.getState();
+            if (s.chucky) {
+                // Next line of Chucky's bubble
+                if (s.chucky.kind === 'intro' && s.chucky.index === s.chucky.items.length - 1) facts.finishIntro();
+                s.nextChucky();
+            } else if (s.isPlacementMode) setInput({ isBuilding: true });
         } else if (e.key === 'Escape') {
             const s = useGameStore.getState();
-            if (s.isGameMenuOpen) s.closeGameMenu();
+            if (s.chucky) {
+                if (s.chucky.kind === 'intro') facts.finishIntro();
+                s.closeChucky();
+            } else if (s.isGameMenuOpen) s.closeGameMenu();
             else if (s.isBuildMenuOpen) s.closeBuildMenu();
             else if (s.isPlacementMode) s.cancelPlacement();
             else s.openGameMenu();

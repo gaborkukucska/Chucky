@@ -38,6 +38,7 @@ interface LogEntry {
     rotation: Vec3;
     value: number;
     velocity?: Vec3;
+    spin?: Vec3;
     thrown?: boolean;
     thrownBy?: string;
     team?: Team;
@@ -111,12 +112,14 @@ const cleanLog = (raw: any, owner: string, now: number): LogEntry | null => {
     const position = vec3(raw.position);
     if (!logId || !position) return null;
     const velocity = raw.velocity ? vec3(raw.velocity, 100) : null;
+    const spin = raw.spin ? vec3(raw.spin, 60) : null;
     return {
         id: logId,
         position,
         rotation: vec3(raw.rotation, 10) ?? [0, 0, 0],
         value: Math.round(num(raw.value, 1, 10000, 1)),
         ...(velocity ? { velocity } : {}),
+        ...(spin ? { spin } : {}),
         ...(raw.thrown ? { thrown: true, thrownBy: owner, team: team(raw.team) } : {}),
         ...(raw.woodOnly ? { woodOnly: true } : {}),
         owner,

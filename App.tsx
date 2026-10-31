@@ -7,6 +7,7 @@ import { persistence, SaveSlotInfo, LeaderboardEntry, SAVE_SLOTS } from './servi
 import type { AudioChannel } from './services/audio';
 import type { GraphicsQuality } from './types';
 import { multiplayer, TEAMS, TEAM_INFO, Team } from './services/multiplayer';
+import { facts } from './services/facts';
 
 // =====================================================================
 // Error boundary
@@ -728,6 +729,54 @@ const ConnectionLostOverlay = () => {
     );
 };
 
+// =====================================================================
+// Chucky's speech bubble: tips and fact nuggets (services/facts.ts, public/chucky-facts.json)
+// =====================================================================
+const ChuckyBubble = () => {
+    const chucky = useGameStore(state => state.chucky);
+    const nextChucky = useGameStore(state => state.nextChucky);
+    const closeChucky = useGameStore(state => state.closeChucky);
+    const item = chucky ? chucky.items[chucky.index] : null;
+
+    useEffect(() => {
+        if (item) facts.markSeen(item.id);
+    }, [item]);
+
+    if (!chucky || !item) return null;
+    const intro = chucky.kind === 'intro';
+    const last = chucky.index === chucky.items.length - 1;
+    const next = () => {
+        if (intro && last) facts.finishIntro();
+        nextChucky();
+    };
+    const skip = () => {
+        facts.finishIntro();
+        closeChucky();
+    };
+
+    return (
+        <div className="absolute inset-x-0 bottom-40 z-[55] flex justify-center px-3 pointer-events-none">
+            <div className="pointer-events-auto w-full max-w-sm flex items-end gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="text-5xl leading-none drop-shadow-lg select-none" aria-hidden="true">🦫</div>
+                <div className="flex-1 bg-white text-stone-800 rounded-2xl rounded-bl-sm p-3 shadow-2xl border-2 border-amber-300">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-amber-600 mb-0.5">
+                        {intro ? `Chucky's tips · ${chucky.index + 1}/${chucky.items.length}` : 'Chucky says…'}
+                    </div>
+                    <p className="text-sm leading-snug font-medium">{item.text}</p>
+                    <div className="flex justify-end items-center gap-2 mt-2">
+                        {intro && !last && (
+                            <button onClick={skip} className="text-xs font-bold text-stone-500 hover:text-stone-700 px-2 py-1">Skip</button>
+                        )}
+                        <button onClick={next} className="bg-amber-500 hover:bg-amber-400 text-white text-xs font-black px-3 py-1.5 rounded-lg active:scale-95">
+                            {last ? 'Got it!' : 'Next ▶'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // Panel wrapper used by the menus
 const Panel = ({ title, children, onBack }: { title: string; children: ReactNode; onBack?: () => void }) => (
     <div className="w-full max-w-sm bg-black/70 backdrop-blur-xl border border-white/15 rounded-2xl p-4 shadow-2xl text-white">
@@ -773,6 +822,28 @@ const Toggle = ({ on, label, hint, onChange }: { on: boolean; label: string; hin
     </button>
 );
 
+const ChuckySettings = () => {
+    const [on, setOn] = useState(() => facts.enabled);
+    const [reset, setReset] = useState(false);
+    return (
+        <div>
+            <div className="text-[10px] uppercase tracking-wider text-white/50 font-bold mb-1.5">Chucky</div>
+            <Toggle
+                on={on}
+                label="🦫 Fact nuggets"
+                hint="Tips and beaver facts from Chucky as you play"
+                onChange={(value) => { facts.setEnabled(value); setOn(value); }}
+            />
+            <button
+                onClick={() => { facts.resetSeen(); setReset(true); }}
+                className="mt-1.5 w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-white/80"
+            >
+                {reset ? '✓ Chucky will tell you everything again' : '🔁 Hear all the facts again'}
+            </button>
+        </div>
+    );
+};
+
 const SettingsPanel = () => {
     const quality = useGameStore(state => state.quality);
     const setQuality = useGameStore(state => state.setQuality);
@@ -808,6 +879,7 @@ const SettingsPanel = () => {
                     ))}
                 </div>
             </div>
+            <ChuckySettings />
             <p className="text-[10px] text-white/40">Settings are saved on this device.</p>
         </div>
     );
@@ -848,6 +920,7 @@ const GameMenu = () => {
                             </>
                         )}
                         <MenuButton onClick={() => setView('leaderboard')}>🏆 Leaderboard</MenuButton>
+                        <MenuButton onClick={() => { closeGameMenu(); facts.replayIntro(); }}>🦫 Chucky's tips</MenuButton>
                         <MenuButton onClick={() => setView('settings')}>⚙️ Settings</MenuButton>
                         {inJointGame
                             ? <MenuButton variant="danger" onClick={() => setView('confirmLeave')}>🚪 Leave game</MenuButton>
@@ -955,17 +1028,13 @@ const StartScreen = () => {
     return (
         <div className="absolute inset-0 z-40 bg-black/80 flex flex-col items-center justify-center text-white p-4 backdrop-blur-sm overflow-y-auto">
             <h1 className="text-5xl md:text-7xl font-black mb-3 tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-amber-400 to-amber-600 drop-shadow-lg text-center leading-none">
-                CHUCKY<br/>THE WOODCHUCK
+                CHUCKY<br/>THE BEAVER
             </h1>
             <p className="italic text-sm md:text-base opacity-90 font-serif mb-4 text-gray-300 text-center">The river is flowing. The dam must be built.</p>
 
-            <div className="bg-white/5 p-3 rounded-xl border border-white/10 text-left space-y-1.5 text-xs shadow-xl max-w-sm w-full mb-5 text-gray-300">
-                <p>🕹️ <b className="text-amber-400 uppercase">Move</b> with the joystick (or WASD)</p>
-                <p>🪓 <b className="text-amber-400 uppercase">Chomp</b> trees by bumping into them</p>
-                <p>🤿 <b className="text-amber-400 uppercase">Dive</b> in the river (hold 🤿 / Space) - watch your breath</p>
-                <p>🫐 <b className="text-amber-400 uppercase">Zoomies</b>: eat {BERRIES_FOR_ZOOMIES} berries for a speed boost</p>
-                <p>⚡ <b className="text-amber-400 uppercase">Combo</b> log pickups for multipliers</p>
-                <p>🏗️ <b className="text-amber-400 uppercase">Build</b> dams to score big · 🌙 beware the night</p>
+            <div className="flex items-center gap-3 bg-white/5 p-3 rounded-xl border border-white/10 text-xs shadow-xl max-w-sm w-full mb-5 text-gray-300">
+                <span className="text-4xl leading-none" aria-hidden="true">🦫</span>
+                <p>Hi, I'm Chucky! Start a game and I'll show you the ropes - and bust a few myths about beavers along the way.</p>
             </div>
 
             <div className="w-full max-w-xs space-y-2">
@@ -1049,6 +1118,11 @@ const GameOverScreen = () => {
 export default function App() {
   const phase = useGameStore(state => state.phase);
 
+  // Chucky's fact nuggets (public/chucky-facts.json)
+  useEffect(() => {
+     facts.load();
+  }, []);
+
   useEffect(() => {
      const unlock = () => {
          audioService.resume();
@@ -1081,6 +1155,7 @@ export default function App() {
                     <BuildMenuOverlay />
                     <GameMenuOverlay />
                     <MpFeed />
+                    <ChuckyBubble />
                     <KnockoutOverlay />
                     <ConnectionLostOverlay />
                 </>

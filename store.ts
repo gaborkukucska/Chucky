@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { GamePhase, CameraMode, GraphicsQuality, TreeData, LogData, LooseLogData, BoulderData, Blueprint, PlacedStructure, ComboState, Notification, MobData, FoodData } from './types';
 import { audioService, AudioChannel, AudioSettings } from './services/audio';
 import { multiplayer, canDemolish, MP_OFF, MpState } from './services/multiplayer';
+import type { Fact } from './services/facts';
 import { persistence, SaveData, SAVE_VERSION, sanitizeName } from './services/persistence';
 import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, readBodyTransform } from './globals';
 
@@ -58,33 +59,47 @@ const MAX_DESTROY_SECONDS = 8;
 // and lands as a pick-up worth +1 wood - no score or combo, so throwing and picking the
 // log up again can't be farmed.
 export const THROW_COOLDOWN_MS = 600;
-const THROW_SPEED = 38;      // m/s forwards
-export const THROW_CHARGE_MS = 1000; // Hold the throw button this long to aim as high as it goes
-const THROW_LIFT_MIN = 5;    // m/s upwards for a quick tap - lands ~20 m out on flat ground
-const THROW_LIFT_MAX = 16;   // m/s upwards fully charged - a lob that lands ~50 m out (gravity is 20 m/s²)
+// Holding the throw button builds up power (0 -> 1 over THROW_CHARGE_MS): speed AND height.
+// A quick tap is a short toss for a wolf right in front of you; full power is a long lob.
+export const THROW_CHARGE_MS = 1200;
+const THROW_SPEED_MIN = 7;   // m/s forwards for a quick tap - lands ~4 m away
+const THROW_SPEED_MAX = 38;  // m/s forwards at full power
+const THROW_LIFT_MIN = 4;    // m/s upwards for a quick tap
+const THROW_LIFT_MAX = 16;   // m/s upwards at full power - a lob that lands ~55 m out (gravity is 20 m/s²)
 // Every throw flies a little off the aim, so no two follow exactly the same path
-const THROW_SCATTER_LIFT = 1.2;   // ± m/s higher / lower
+const THROW_SCATTER_LIFT = 1.2;   // ± m/s higher / lower (less for short tosses)
 const THROW_SCATTER_YAW = 0.05;   // ± rad (~3°) left / right
 const THROW_SCATTER_SPEED = 0.06; // ± fraction longer / shorter
+const THROW_SPIN_MIN = 6;         // rad/s - each thrown log spins randomly ...
+const THROW_SPIN_MAX = 20;        // ... up to this fast
 const THROW_SPAWN_AHEAD = 1.2;
 const THROW_SPAWN_UP = 0.5;
 
-/** Upward launch speed for a throw button held this long */
-export const throwLiftForCharge = (heldMs: number) =>
-    THROW_LIFT_MIN + (THROW_LIFT_MAX - THROW_LIFT_MIN) * Math.max(0, Math.min(1, heldMs / THROW_CHARGE_MS));
+/** Throw power (0 = quick tap, 1 = full) for a throw button held this long */
+export const throwPowerForCharge = (heldMs: number) => Math.max(0, Math.min(1, heldMs / THROW_CHARGE_MS));
 
 /** Where a throw starts and how fast it goes. scatter = false: the exact aim (trajectory guide) */
-export const throwLaunch = (lift: number, scatter: boolean) => {
+export const throwLaunch = (power: number, scatter: boolean) => {
     const jitter = (amount: number) => (scatter ? (Math.random() * 2 - 1) * amount : 0);
     const aim = playerState.facing;
     const facing = aim + jitter(THROW_SCATTER_YAW);
-    const speed = THROW_SPEED * (1 + jitter(THROW_SCATTER_SPEED));
+    const speed = (THROW_SPEED_MIN + (THROW_SPEED_MAX - THROW_SPEED_MIN) * power) * (1 + jitter(THROW_SCATTER_SPEED));
+    const lift = THROW_LIFT_MIN + (THROW_LIFT_MAX - THROW_LIFT_MIN) * power + jitter(THROW_SCATTER_LIFT * (0.4 + 0.6 * power));
     const p = currentWoodchuckPos;
     return {
         facing,
         position: [p.x + Math.sin(aim) * THROW_SPAWN_AHEAD, p.y + THROW_SPAWN_UP, p.z + Math.cos(aim) * THROW_SPAWN_AHEAD] as Vec3,
-        velocity: [Math.sin(facing) * speed, Math.max(1, lift + jitter(THROW_SCATTER_LIFT)), Math.cos(facing) * speed] as Vec3,
+        velocity: [Math.sin(facing) * speed, Math.max(1, lift), Math.cos(facing) * speed] as Vec3,
     };
+};
+
+/** A random spin (any axis) for a thrown log */
+const randomSpin = (): Vec3 => {
+    const u = Math.random() * 2 - 1;
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.sqrt(1 - u * u);
+    const rate = THROW_SPIN_MIN + Math.random() * (THROW_SPIN_MAX - THROW_SPIN_MIN);
+    return [round3(r * Math.cos(a) * rate), round3(u * rate), round3(r * Math.sin(a) * rate)];
 };
 const MOB_DEFEAT_POINTS = { wolf: 20, bear: 40 };
 
@@ -134,6 +149,10 @@ interface GameState {
   mp: MpState;                   // Joint game: status, room code, players, feed (services/multiplayer.ts)
   koUntil: number;               // Joint games: knocked out until this time (0 = not)
   lastHitBy: string;             // Joint games: who threw the last log that hit us
+  chucky: { items: Fact[]; index: number; kind: 'intro' | 'fact' } | null; // Chucky's speech bubble
+  treesFelled: number;           // This game's progress, for Chucky's facts
+  throwsMade: number;
+  mobsChased: number;
   woodCount: number;
   score: number;
   totalLogsCollected: number;
@@ -263,9 +282,12 @@ interface GameState {
   setCameraZoom: (zoom: number) => void;
   setQuality: (quality: GraphicsQuality) => void;
   setAudioChannel: (channel: AudioChannel, enabled: boolean) => void;
-  throwLog: (lift?: number) => boolean;
+  throwLog: (power?: number) => boolean;
   takeThrowHit: (by: string, dirX: number, dirZ: number) => void;
   mpRespawn: () => void;
+  showChucky: (items: Fact[], kind: 'intro' | 'fact') => void;
+  nextChucky: () => void;
+  closeChucky: () => void;
   defeatMob: (id: string) => void;
 }
 
@@ -671,6 +693,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   mp: MP_OFF,
   koUntil: 0,
   lastHitBy: '',
+  chucky: null,
+  treesFelled: 0,
+  throwsMade: 0,
+  mobsChased: 0,
   isPlacementMode: false,
   isBuildMenuOpen: false,
   selectedBlueprintId: null,
@@ -731,6 +757,10 @@ export const useGameStore = create<GameState>((set, get) => ({
           runKey: newRunKey(),
           koUntil: 0,
           lastHitBy: '',
+          chucky: null,
+          treesFelled: 0,
+          throwsMade: 0,
+          mobsChased: 0,
           leaderboardRank: null,
           spawnPoint: null,
           spawnFacing: Math.PI / 2,
@@ -808,25 +838,26 @@ export const useGameStore = create<GameState>((set, get) => ({
       audioService.setChannelEnabled(channel, enabled);
   },
 
-  // Throw one log the way Chucky faces (on land), aimed up by `lift` (see throwLiftForCharge).
+  // Throw one log the way Chucky faces (on land) with `power` 0..1 (see throwPowerForCharge).
   // Returns false if it can't be thrown now.
-  throwLog: (lift = THROW_LIFT_MIN) => {
+  throwLog: (power = 0) => {
       const s = get();
       const now = Date.now();
       if (s.phase !== 'PLAYING' || s.isPaused || s.isGameMenuOpen || s.isBuildMenuOpen) return false;
       if (s.isInWater || s.woodCount < 1 || now - s.lastThrowTime < THROW_COOLDOWN_MS || s.koUntil > 0) return false;
-      const launch = throwLaunch(lift, true);
+      const launch = throwLaunch(power, true);
       const log: LooseLogData = {
           id: `throw-${now}-${Math.floor(Math.random() * 1e6)}`,
           position: roundVec(launch.position),
           rotation: [0, round3(launch.facing), round3(Math.PI / 2)], // Crosswise, like a thrown stick
           createdAt: now,
           velocity: roundVec(launch.velocity),
+          spin: randomSpin(),
           thrown: true,
           value: 1,
           ...(s.mp.status === 'playing' ? { owner: s.mp.myId, thrownBy: s.mp.myId, team: s.mp.team } : {}),
       };
-      set({ woodCount: s.woodCount - 1, lastThrowTime: now, looseLogs: [...s.looseLogs, log] });
+      set({ woodCount: s.woodCount - 1, lastThrowTime: now, looseLogs: [...s.looseLogs, log], throwsMade: s.throwsMade + 1 });
       multiplayer.sendLogs([log]);
       audioService.playThrow();
       return true;
@@ -853,6 +884,23 @@ export const useGameStore = create<GameState>((set, get) => ({
       lastHitBy: '',
   })),
 
+  // Chucky's speech bubble (services/facts.ts decides what and when). Pauses a solo game.
+  showChucky: (items, kind) => set((state) => (items.length
+      ? { chucky: { items, index: 0, kind }, ...pauseFields(state) }
+      : state)),
+
+  nextChucky: () => set((state) => {
+      if (!state.chucky) return state;
+      if (state.chucky.index + 1 < state.chucky.items.length) {
+          return { chucky: { ...state.chucky, index: state.chucky.index + 1 } };
+      }
+      return { chucky: null, ...(state.isGameMenuOpen || state.isBuildMenuOpen || state.notification ? {} : resumeFields(state)) };
+  }),
+
+  closeChucky: () => set((state) => (state.chucky
+      ? { chucky: null, ...(state.isGameMenuOpen || state.isBuildMenuOpen || state.notification ? {} : resumeFields(state)) }
+      : state)),
+
   // A wolf/bear took enough log hits: it runs off
   defeatMob: (id) => set((state) => {
       const mob = state.mobs.find(m => m.id === id);
@@ -862,6 +910,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       audioService.playLevelUp();
       return {
           mobs: state.mobs.filter(m => m.id !== id),
+          mobsChased: state.mobsChased + 1,
           score: unlocks.score,
           blueprints: unlocks.blueprints,
           notification: unlocks.notification ?? {
@@ -880,8 +929,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   })),
 
   dismissNotification: () => set((state) => {
-      // Stay paused if a menu is still open
-      if (state.isBuildMenuOpen || state.isGameMenuOpen || state.phase !== 'PLAYING') {
+      // Stay paused if a menu or Chucky's bubble is still open
+      if (state.isBuildMenuOpen || state.isGameMenuOpen || state.chucky || state.phase !== 'PLAYING') {
           return { notification: null };
       }
       return { notification: null, ...resumeFields(state) };
@@ -1024,6 +1073,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     return {
       activeTreeId: null,
       trees: state.trees.map(t => t.id === id ? { ...t, health: 0, isFelled: true } : t),
+      treesFelled: state.treesFelled + 1,
       looseLogs: [...state.looseLogs, ...newLooseLogs],
       food: [...state.food, ...newFood],
       treesChomped: newTreesChomped,
@@ -1151,7 +1201,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       isPlacementMode: false,
       isBuildMenuOpen: false,
       selectedBlueprintId: null,
-      ...(state.isGameMenuOpen || state.notification ? {} : resumeFields(state))
+      ...(state.isGameMenuOpen || state.notification || state.chucky ? {} : resumeFields(state))
   })),
 
   selectBlueprint: (id) => set((state) => ({
@@ -1159,7 +1209,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       isPlacementMode: true,
       isBuildMenuOpen: false,
       placementRotation: [0, 0, 0],
-      ...(state.isGameMenuOpen || state.notification ? {} : resumeFields(state))
+      ...(state.isGameMenuOpen || state.notification || state.chucky ? {} : resumeFields(state))
   })),
 
   cancelPlacement: () => set({ isPlacementMode: false, selectedBlueprintId: null, placementRotation: [0, 0, 0], placementValid: true, placementInRiver: false, placementReason: null }),
@@ -1332,7 +1382,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (!state.isGameMenuOpen) return state;
       return {
           isGameMenuOpen: false,
-          ...(state.isBuildMenuOpen || state.notification ? {} : resumeFields(state))
+          ...(state.isBuildMenuOpen || state.notification || state.chucky ? {} : resumeFields(state))
       };
   }),
 

@@ -1,6 +1,6 @@
 # Woodchuck Dam Builder 3000 🦫
 
-Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you play as an industrious woodchuck who chomps trees, hauls logs and builds the ultimate dam across the river.
+Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you play as Chucky, an industrious **beaver** who chomps trees, hauls logs and builds the ultimate dam across the river. (Yes, the title is a joke: woodchucks don't actually chuck wood. Chucky will tell you all about it.)
 
 ## 🌟 Features
 
@@ -12,7 +12,8 @@ Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you
   - **Magnet**: reach a 3x combo and nearby logs fly to you.
   - **Zoomies**: eat 3 berries to run and swim faster for 20 seconds.
 - **Swimming and diving**: Swim across the river and dive for logs and fruit that have sunk. Keep an eye on the breath bar.
-- **Throwing logs**: On land, hold the throw button to aim higher and release to throw the way Chucky faces. A dotted line shows the flight path while you aim, and every throw flies a little off the aim. A wolf runs off after 2 hits and a bear after 3. A thrown log can be picked up again, but only gives the wood back.
+- **Chucky's fact nuggets**: Chucky explains the game in a speech bubble when you start, then shares beaver facts and myth-busters as you play. The text is in `public/chucky-facts.json`, which you can edit.
+- **Throwing logs**: On land, tap the throw button for a short toss or hold it for a longer, higher throw; release to throw the way Chucky faces. Thrown logs spin randomly. A dotted line shows the flight path while you aim, and every throw flies a little off the aim. A wolf runs off after 2 hits and a bear after 3. A thrown log can be picked up again, but only gives the wood back.
 - **Day and night**: The sun and moon move across the sky. At night wolves and bears come out.
 - **Four camera views**:
   - **3rd person** chase cam behind Chucky.
@@ -107,6 +108,8 @@ If you run the server directly on your phone with Termux:
 
 ## 🎮 How to Play
 
+When you start your first game, Chucky explains the basics in a speech bubble (Next ▶ / Skip, or Enter / Esc). After that, he pops up now and then with a beaver fact. In a solo game the game pauses while he talks. You can replay the tips from ☰ → 🦫 Chucky's tips, and switch the facts off in ⚙️ Settings.
+
 1. **Chomp trees**: walk up against a tree trunk and Chucky chomps it automatically. The bar at the top shows the tree's health. Felled trees drop logs and sometimes an apple or a berry.
 2. **Collect logs**: walk over logs to pick them up. Picking logs up quickly builds your combo.
 3. **Build**: tap 🏗️, pick an unlocked blueprint and place it. The see-through preview is cyan when the spot is valid and red when it isn't (not enough wood, too close to another structure, or off the map).
@@ -125,7 +128,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 |---|---|
 | **Joystick** (bottom middle) | **3rd person view:** up/down walks forward/back, left/right turns Chucky (the camera stays behind him). **Other views:** push where you want to go on the screen. |
 | **🤿 Dive** (bottom left, in water) | Hold to dive, release to float back up. Watch the breath bar. |
-| **🪵 Throw** (bottom left, on land) | **Hold** to aim: the longer you hold, the higher and further the throw (a quick tap is a flat ~20 m throw; 1 second is a ~50 m lob). A dotted line and a ring show where it will land. **Release** to throw. Costs 1 log; you can throw about every 0.6 seconds. Each throw flies a little off the aim. |
+| **🪵 Throw** (bottom left, on land) | **Tap** for a short toss (about 4 m, good for a wolf right in front of you), or **hold** to throw faster and higher: 1.2 seconds is a lob of about 55 m. While you hold, a dotted line and a ring show where the log will land. **Release** to throw. Costs 1 log; you can throw about every 0.6 seconds. Each throw flies a little off the aim and spins randomly. |
 | **Zoom slider** (right edge) | Slide up to move the camera closer, down to move it further away. Double-tap the slider to reset. |
 | **🏗️ / ✅ / 💥** (top right) | Opens the build menu. Becomes ✅ to **place** while building. Next to a structure it becomes 💥: **hold** it to demolish (you get 80% of the logs back). |
 | **✖️** | Stop building. |
@@ -166,6 +169,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | `components/WorldObjects.tsx` | Trees, boulders, loose logs (debris bundles), placed structures (instanced) and the placement preview. |
 | `components/Controls.tsx` | Joystick, dive button, zoom slider, top-right buttons and keyboard/mouse input. It writes to `window.woodchuckInput`. |
 | `App.tsx` | HUD, combo display, power-up pills, notifications, build menu, placement panel, in-game menu, settings, start and game-over screens, leaderboard. |
+| `services/facts.ts` + `public/chucky-facts.json` | Chucky's speech bubble. The JSON holds the intro tips and the facts, each with an optional `when` condition (logs, trees, score, day, built, throws, chased, swim, night). Seen facts are remembered on the device. |
 | `services/audio.ts` | Synthesized sound (no audio files) on three channels that can be muted separately: music, environment and sound effects. |
 | `services/persistence.ts` | localStorage saves (3 slots), player name, camera zoom, graphics quality, sound settings, and the leaderboard client (shared API with a fallback to each device). |
 | `server/leaderboardApi.ts` | Vite plugin: `GET` and `POST /api/leaderboard`, stored in `data/leaderboard.json`. |
@@ -210,6 +214,10 @@ Phones and tablets start on Medium and computers on High, until the player picks
 ### Sound
 
 All sound is synthesized in `services/audio.ts` and mixed on three channels: **music**, **environment** and **sfx**. A muted channel stops scheduling sounds, so it costs nothing. The environment channel plays a river (louder near the water, muffled under it), wind, birds by day and crickets at night; `AmbientAudioManager` in `Game3D.tsx` updates it four times a second. Audio pauses while the tab or app is in the background.
+
+### Editing Chucky's facts
+
+Open `public/chucky-facts.json`, change or add entries, and reload the game; there's no need to rebuild. Each entry has a unique `id` and a `text`. Entries in `intro` play one after another at the start of your first game. Entries in `facts` show up one at a time, at most one every 40 seconds, each once per device. A fact's `when` is what the player must have reached first, for example `{ "trees": 3 }` or `{ "swim": 1, "logs": 10 }`. Facts without `when` come up every few minutes. Mistakes such as a missing id or an unknown `when` key are skipped, with a message in the browser console. The `_readme` at the top of the file explains every key.
 
 ### Joint games architecture
 

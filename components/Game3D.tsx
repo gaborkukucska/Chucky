@@ -3,7 +3,8 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Physics, useSphere } from '@react-three/cannon';
 import { Sky, Stars, Cloud, Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
-import { useGameStore, calculateTerrainHeight, isNightTime, MAP_SIZE, getRiverX, getRiverWidth, throwLaunch, throwLiftForCharge } from '../store';
+import { useGameStore, calculateTerrainHeight, isNightTime, MAP_SIZE, getRiverX, getRiverWidth, throwLaunch, throwPowerForCharge } from '../store';
+import { facts } from '../services/facts';
 import { audioService } from '../services/audio';
 import { Terrain } from './Terrain';
 import { Water } from './Water';
@@ -711,7 +712,7 @@ const ThrowAimGuide = () => {
         ring.visible = false;
         if (!show) return;
 
-        const launch = throwLaunch(throwLiftForCharge(performance.now() - throwAim.startedAt), false);
+        const launch = throwLaunch(throwPowerForCharge(performance.now() - throwAim.startedAt), false);
         let [x, y, z] = launch.position;
         let [vx, vy, vz] = launch.velocity;
         const drag = Math.pow(1 - AIM_DRAG, AIM_STEP);
@@ -769,6 +770,20 @@ const ThrowAimGuide = () => {
             </mesh>
         </>
     );
+};
+
+// =====================================================================
+// Chucky's fact nuggets: checks twice a second whether it's time for the next one
+// =====================================================================
+const FactsManager = () => {
+    const elapsed = useRef(0);
+    useFrame((_, delta) => {
+        elapsed.current += delta;
+        if (elapsed.current < 0.5) return;
+        elapsed.current = 0;
+        facts.tick(Date.now());
+    });
+    return null;
 };
 
 // =====================================================================
@@ -833,6 +848,7 @@ const GameScene = () => {
                 <DestructionManager />
                 <AmbientAudioManager />
                 <MultiplayerSync />
+                <FactsManager />
                 <DayNightCycle shadowMapSize={qualitySettings.shadowMap} />
 
                 {qualitySettings.clouds && (
