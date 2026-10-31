@@ -10,7 +10,7 @@ import { Water } from './Water';
 import { Boulder, Tree, Log, LooseLog, PlacedStructureRenderer } from './WorldObjects';
 import { Woodchuck } from './Woodchuck';
 import { FoodData, MobData } from '../types';
-import { currentWoodchuckPos, liveObjects } from '../globals';
+import { currentWoodchuckPos, liveObjects, playerState } from '../globals';
 
 const WATER_LEVEL = -1.5;
 const MAX_FRAME_DELTA = 0.1;
@@ -56,34 +56,119 @@ class OptionalBoundary extends React.Component<{ children?: React.ReactNode }, {
 // =====================================================================
 // Camera
 // =====================================================================
-const CAMERA_MODES: Record<string, { offset: [number, number, number]; speed: number; absoluteY?: boolean }> = {
-    FOLLOW:    { offset: [0, 20, 40], speed: 3 },
-    BEHIND:    { offset: [0, 12, 25], speed: 5 },
-    TOP_DOWN:  { offset: [0, 40, 5],  speed: 2, absoluteY: true },
-    CINEMATIC: { offset: [45, 15, 0], speed: 2 },
+// Four distinct views (📷 cycles them). The zoom slider / mouse wheel scales distance + height.
+//   BEHIND    "3rd person" - chase cam behind Chucky; swings round as he turns (steering controls)
+//   FOLLOW    "Overview"   - high three-quarter view from the south, world-aligned
+//   TOP_DOWN  "Top-down"   - map view from straight above, north up
+//   CINEMATIC "Cinematic"  - slow, low orbit around Chucky
+const CHASE = { distance: 8, height: 3.5, lookAhead: 4, lookHeight: 1.2, posRate: 8, yawRate: 3.5, minDistance: 2.8 };
+const OVERVIEW = { back: 26, height: 18, posRate: 3 };
+const TOP_DOWN_VIEW = { height: 42, back: 2, posRate: 3 };
+const CINEMATIC_VIEW = { radius: 20, height: 6, orbitSpeed: 0.12, posRate: 2 };
+const CAMERA_MIN_CLEARANCE = 1.5; // Above terrain
+// Must match the Tree visuals in WorldObjects.tsx (trunk 4*s tall, radius up to 0.75*s;
+// lower canopy cone from 3*s to 7*s above the ground, 2*s wide at its base)
+const TREE_SCALE: Record<string, number> = { small: 0.8, medium: 1.1, large: 1.5 };
+
+const wrapAngle = (a: number) => {
+    while (a < -Math.PI) a += Math.PI * 2;
+    while (a > Math.PI) a -= Math.PI * 2;
+    return a;
 };
 
 const CameraController = () => {
     const { camera } = useThree();
     const desired = useMemo(() => new THREE.Vector3(), []);
     const lookTarget = useMemo(() => new THREE.Vector3(), []);
+    const smoothLook = useMemo(() => new THREE.Vector3(), []);
+    const chaseYaw = useRef(playerState.facing);
+    const orbitAngle = useRef(0);
+    const chasePull = useRef(1); // 1 = full distance, <1 = pulled in front of a tree
+    const lastMode = useRef('');
 
     useFrame((state, rawDelta) => {
         const { x, y, z } = currentWoodchuckPos;
         if (x === 0 && y === 0 && z === 0) return; // Skip until the woodchuck has spawned
         const delta = Math.min(rawDelta, MAX_FRAME_DELTA);
+        const s = useGameStore.getState();
+        const zoom = s.cameraZoom;
+        const mode = s.cameraMode;
 
-        const mode = CAMERA_MODES[useGameStore.getState().cameraMode] || CAMERA_MODES.FOLLOW;
-        const [ox, oy, oz] = mode.offset;
-        desired.set(x + ox, mode.absoluteY ? oy : y + oy, z + oz);
+        // Entering a mode: start from where the camera currently is, so the switch is smooth
+        if (mode !== lastMode.current) {
+            lastMode.current = mode;
+            chaseYaw.current = playerState.facing;
+            orbitAngle.current = Math.atan2(camera.position.x - x, camera.position.z - z);
+            smoothLook.set(x, y, z);
+        }
 
-        // Never dip below the terrain (hills / mountain rim)
-        const groundY = calculateTerrainHeight(desired.x, desired.z) + 2;
-        if (desired.y < groundY) desired.y = groundY;
+        let rate: number;
+        if (mode === 'BEHIND') {
+            // Yaw eases towards Chucky's facing, so the camera swings round behind him
+            chaseYaw.current += wrapAngle(playerState.facing - chaseYaw.current) * (1 - Math.exp(-CHASE.yawRate * delta));
+            const sin = Math.sin(chaseYaw.current);
+            const cos = Math.cos(chaseYaw.current);
+            const dist = CHASE.distance * zoom;
+            const height = CHASE.height * zoom;
 
-        camera.position.lerp(desired, 1 - Math.exp(-mode.speed * delta));
-        lookTarget.set(x, y, z);
-        camera.lookAt(lookTarget);
+            // A tree between Chucky and the camera would hide him: slide the camera in front of it
+            // (pull in quickly, ease back out once the view is clear)
+            let clear = dist;
+            for (const tree of s.trees) {
+                if (tree.isFelled) continue;
+                const rx = tree.position[0] - x;
+                const rz = tree.position[2] - z;
+                const along = -(rx * sin + rz * cos); // How far behind Chucky (camera side)
+                if (along <= 0 || along >= dist + 2) continue;
+                const sc = TREE_SCALE[tree.size] ?? 1.1;
+                const perp = Math.abs(rx * cos - rz * sin);
+                if (perp > 2 * sc + 0.5) continue;
+                const rayY = y + CHASE.lookHeight + (height - CHASE.lookHeight) * Math.min(1, along / dist)
+                    - calculateTerrainHeight(tree.position[0], tree.position[2]);
+                let r = 0.75 * sc + 0.35; // Trunk
+                if (rayY > 3 * sc && rayY < 7 * sc) r = Math.max(r, 2 * sc * (1 - (rayY - 3 * sc) / (4 * sc)) + 0.35);
+                if (perp < r) clear = Math.min(clear, along - Math.sqrt(r * r - perp * perp) - 0.3);
+            }
+            const targetPull = Math.max(CHASE.minDistance, clear) / dist;
+            const pullRate = targetPull < chasePull.current ? 12 : 2;
+            chasePull.current += (targetPull - chasePull.current) * (1 - Math.exp(-pullRate * delta));
+            const d = dist * chasePull.current;
+            // Height stays put when pulled in: looking down over Chucky's shoulder keeps the view open
+            desired.set(x - sin * d, y + height, z - cos * d);
+            const ahead = CHASE.lookAhead * chasePull.current; // Pulled in: look nearer so Chucky stays in frame
+            lookTarget.set(x + sin * ahead, y + CHASE.lookHeight, z + cos * ahead);
+            rate = CHASE.posRate;
+        } else if (mode === 'TOP_DOWN') {
+            desired.set(x, y + TOP_DOWN_VIEW.height * zoom, z + TOP_DOWN_VIEW.back * zoom);
+            lookTarget.set(x, y, z);
+            rate = TOP_DOWN_VIEW.posRate;
+        } else if (mode === 'CINEMATIC') {
+            orbitAngle.current += CINEMATIC_VIEW.orbitSpeed * delta;
+            const r = CINEMATIC_VIEW.radius * zoom;
+            desired.set(x + Math.sin(orbitAngle.current) * r, y + CINEMATIC_VIEW.height * zoom, z + Math.cos(orbitAngle.current) * r);
+            lookTarget.set(x, y + 1, z);
+            rate = CINEMATIC_VIEW.posRate;
+        } else {
+            // FOLLOW / Overview
+            desired.set(x, y + OVERVIEW.height * zoom, z + OVERVIEW.back * zoom);
+            lookTarget.set(x, y, z);
+            rate = OVERVIEW.posRate;
+        }
+
+        // Stay above the terrain (also halfway along the view, so hills behind Chucky don't swallow
+        // the chase cam) and above the water surface (diving: look down at him through the water)
+        const midGround = calculateTerrainHeight((desired.x + x) / 2, (desired.z + z) / 2);
+        const minY = Math.max(
+            calculateTerrainHeight(desired.x, desired.z) + CAMERA_MIN_CLEARANCE,
+            midGround + CAMERA_MIN_CLEARANCE * 0.5,
+            WATER_LEVEL + 0.6
+        );
+        if (desired.y < minY) desired.y = minY;
+
+        const k = 1 - Math.exp(-rate * delta);
+        camera.position.lerp(desired, k);
+        smoothLook.lerp(lookTarget, Math.min(1, k * 1.5));
+        camera.lookAt(smoothLook);
     });
     return null;
 };

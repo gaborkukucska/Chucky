@@ -16,6 +16,7 @@ const LEADERBOARD_MIGRATED_KEY = 'chucky.leaderboard.uploaded';
 const LEADERBOARD_API = '/api/leaderboard';
 const API_TIMEOUT_MS = 4000;
 const NAME_KEY = 'chucky.playerName';
+const ZOOM_KEY = 'chucky.cameraZoom';
 
 type Vec3 = [number, number, number];
 
@@ -221,6 +222,20 @@ export const persistence = {
     clearLeaderboard: () => {
         const s = getStorage();
         try { s?.removeItem(LEADERBOARD_KEY); } catch { /* ignore */ }
+    },
+
+    // --- Camera zoom (per device) ---
+    getCameraZoom: (): number => {
+        try {
+            const v = parseFloat(window.localStorage.getItem(ZOOM_KEY) || '');
+            return Number.isFinite(v) ? v : 1;
+        } catch {
+            return 1;
+        }
+    },
+
+    setCameraZoom: (zoom: number) => {
+        try { window.localStorage.setItem(ZOOM_KEY, String(Math.round(zoom * 100) / 100)); } catch { /* ignore */ }
     },
 
     // --- Player name ---

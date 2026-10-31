@@ -23,6 +23,8 @@ const ACCELERATION = 8;      // 1/s - how quickly Chucky reaches the target spee
 const DECELERATION = 12;     // 1/s - how quickly Chucky stops when input is released
 const RIVER_DRIFT = 0.35;    // Fraction of the river flow applied while swimming
 const TURN_RATE = 10;        // 1/s - how quickly the model turns to face the movement direction
+const STEER_RATE = 2.8;      // rad/s - turning speed with the stick in the 3rd-person camera
+const BACKWARD_SPEED = 0.5;  // Walking backwards (3rd-person camera) is slower
 const VERTICAL_SMOOTHING = 15; // 1/s - terrain following / bobbing smoothing
 const MAP_LIMIT = 145;
 const MAX_FRAME_DELTA = 0.1;   // Clamp long frames (tab switch, GC hitch) to avoid teleporting
@@ -258,26 +260,44 @@ export const Woodchuck = () => {
 
         // @ts-ignore
         const input = window.woodchuckInput || { x: 0, y: 0, isBuilding: false };
-        const inputMag = Math.min(1, Math.hypot(input.x, input.y));
-        const isMoving = inputMag > 0.1;
+        // --- Input -> movement direction ---
+        // 3rd-person (BEHIND) camera: the stick STEERS - left/right turns Chucky, up/down walks along
+        // his facing. (Camera-relative input with a camera that follows his facing makes him spin.)
+        // Other cameras: camera-relative - push the stick where you want to go on screen.
+        let inputMag: number;
+        let isMoving: boolean;
+        if (s.cameraMode === 'BEHIND') {
+            // Rescale so a full diagonal push gives full steer AND full throttle (stick/keys normalise diagonals)
+            const mag = Math.min(1, Math.hypot(input.x, input.y));
+            const axisMax = Math.max(Math.abs(input.x), Math.abs(input.y)) || 1;
+            const steer = Math.abs(input.x) > 0.1 ? (input.x / axisMax) * mag : 0;
+            const throttle = Math.abs(input.y) > 0.1 ? (-input.y / axisMax) * mag : 0; // Stick up = forward
+            currentRotationY.current -= steer * STEER_RATE * delta;
+            const dir = throttle < 0 ? -1 : 1;
+            moveDir.set(Math.sin(currentRotationY.current) * dir, 0, Math.cos(currentRotationY.current) * dir);
+            inputMag = Math.min(1, Math.abs(throttle)) * (throttle < 0 ? BACKWARD_SPEED : 1);
+            isMoving = throttle !== 0;
+        } else {
+            inputMag = Math.min(1, Math.hypot(input.x, input.y));
+            isMoving = inputMag > 0.1;
 
-        // --- Camera-relative input direction ---
-        forward.set(0, 0, -1).applyQuaternion(state.camera.quaternion);
-        right.set(1, 0, 0).applyQuaternion(state.camera.quaternion);
-        forward.y = 0;
-        right.y = 0;
-        forward.normalize();
-        right.normalize();
-        moveDir.set(0, 0, 0).addScaledVector(right, input.x).addScaledVector(forward, -input.y);
-        if (moveDir.lengthSq() > 0) moveDir.normalize();
+            forward.set(0, 0, -1).applyQuaternion(state.camera.quaternion);
+            right.set(1, 0, 0).applyQuaternion(state.camera.quaternion);
+            forward.y = 0;
+            right.y = 0;
+            forward.normalize();
+            right.normalize();
+            moveDir.set(0, 0, 0).addScaledVector(right, input.x).addScaledVector(forward, -input.y);
+            if (moveDir.lengthSq() > 0) moveDir.normalize();
 
-        // --- Facing (frame-rate independent) ---
-        if (isMoving) {
-            const targetAngle = Math.atan2(moveDir.x, moveDir.z);
-            let diff = targetAngle - currentRotationY.current;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            currentRotationY.current += diff * (1 - Math.exp(-TURN_RATE * delta));
+            // Facing (frame-rate independent)
+            if (isMoving) {
+                const targetAngle = Math.atan2(moveDir.x, moveDir.z);
+                let diff = targetAngle - currentRotationY.current;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                currentRotationY.current += diff * (1 - Math.exp(-TURN_RATE * delta));
+            }
         }
         playerState.facing = currentRotationY.current;
 

@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { useGameStore } from '../store';
+import React, { useEffect, useRef, useState } from 'react';
+import { useGameStore, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX } from '../store';
 
 // Global input shared with the Woodchuck frame loop
 // @ts-ignore
@@ -154,6 +154,55 @@ const DiveButton = () => {
 };
 
 // =====================================================================
+// Zoom slider (right edge): top = closer, bottom = further. Double-tap resets.
+// =====================================================================
+const SLIDER_PAD = 12; // px of track above/below the thumb's travel
+
+const ZoomSlider = () => {
+    const zoom = useGameStore(state => state.cameraZoom);
+    const setCameraZoom = useGameStore(state => state.setCameraZoom);
+    const trackRef = useRef<HTMLDivElement>(null);
+    const t = (zoom - CAMERA_ZOOM_MIN) / (CAMERA_ZOOM_MAX - CAMERA_ZOOM_MIN);
+
+    const setFromPointer = (clientY: number) => {
+        const track = trackRef.current;
+        if (!track) return;
+        const rect = track.getBoundingClientRect();
+        const f = Math.max(0, Math.min(1, (clientY - rect.top - SLIDER_PAD) / (rect.height - SLIDER_PAD * 2)));
+        setCameraZoom(CAMERA_ZOOM_MIN + f * (CAMERA_ZOOM_MAX - CAMERA_ZOOM_MIN));
+    };
+
+    return (
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 z-40 flex flex-col items-center gap-1 pointer-events-none select-none">
+            <span className="text-white/90 text-base font-black leading-none drop-shadow">+</span>
+            <div
+                ref={trackRef}
+                className="relative w-8 h-40 rounded-full bg-black/35 border border-white/15 backdrop-blur-sm pointer-events-auto touch-none"
+                onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setFromPointer(e.clientY); }}
+                onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) setFromPointer(e.clientY); }}
+                onDoubleClick={() => setCameraZoom(1)}
+                aria-label="Camera zoom"
+            >
+                <div className="absolute left-1/2 -translate-x-1/2 w-1 rounded-full bg-white/25" style={{ top: SLIDER_PAD, bottom: SLIDER_PAD }} />
+                <div
+                    className="absolute left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-gradient-to-b from-amber-300 to-orange-500 border border-white/60 shadow-lg"
+                    style={{ top: `calc(${SLIDER_PAD}px + ${t} * (100% - ${SLIDER_PAD * 2}px) - 12px)` }}
+                />
+            </div>
+            <span className="text-white/90 text-base font-black leading-none drop-shadow">−</span>
+            <span className="text-[8px] text-white/70 font-bold uppercase tracking-wider drop-shadow">Zoom</span>
+        </div>
+    );
+};
+
+const CAMERA_LABELS: Record<string, string> = {
+    BEHIND: '🎥 3rd person - steer with the stick',
+    FOLLOW: '🗺️ Overview',
+    TOP_DOWN: '🛰️ Top-down',
+    CINEMATIC: '🎬 Cinematic',
+};
+
+// =====================================================================
 // Controls
 // =====================================================================
 export const Controls = () => {
@@ -165,6 +214,17 @@ export const Controls = () => {
     const stopDestroying = useGameStore(state => state.stopDestroying);
     const cycleCameraMode = useGameStore(state => state.cycleCameraMode);
     const openGameMenu = useGameStore(state => state.openGameMenu);
+    const cameraMode = useGameStore(state => state.cameraMode);
+
+    // Show the camera mode's name briefly whenever it changes
+    const [cameraLabel, setCameraLabel] = useState<string | null>(null);
+    const firstRender = useRef(true);
+    useEffect(() => {
+        if (firstRender.current) { firstRender.current = false; return; }
+        setCameraLabel(CAMERA_LABELS[cameraMode] || cameraMode);
+        const timer = setTimeout(() => setCameraLabel(null), 1800);
+        return () => clearTimeout(timer);
+    }, [cameraMode]);
 
     const updateInput = (x: number, y: number) => setInput({ x, y });
 
@@ -240,6 +300,16 @@ export const Controls = () => {
             </div>
 
             <DiveButton />
+
+            <ZoomSlider />
+
+            {cameraLabel && (
+                <div className="fixed top-1/3 inset-x-0 z-40 flex justify-center pointer-events-none">
+                    <div className="bg-black/65 backdrop-blur-md text-white text-xs font-bold px-3 py-1.5 rounded-full border border-white/15 shadow-lg">
+                        {cameraLabel}
+                    </div>
+                </div>
+            )}
         </>
     );
 };
@@ -309,6 +379,13 @@ if (typeof window !== 'undefined') {
             setInput({ dive: false });
         }
     });
+
+    // Mouse wheel zooms the camera while playing (laptop); menus keep the wheel for scrolling
+    window.addEventListener('wheel', (e) => {
+        const s = useGameStore.getState();
+        if (s.phase !== 'PLAYING' || s.isGameMenuOpen || s.isBuildMenuOpen || e.deltaY === 0) return;
+        s.setCameraZoom(s.cameraZoom * (e.deltaY > 0 ? 1.08 : 1 / 1.08));
+    }, { passive: true });
 
     // Losing focus (alt-tab, notification shade) must not leave keys stuck down
     window.addEventListener('blur', () => {

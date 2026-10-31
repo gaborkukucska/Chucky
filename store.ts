@@ -52,6 +52,11 @@ const DEBRIS_STAGGER_MS = 60;
 // Hold-to-destroy time: 1.5s + 1s per 250 logs of blueprint, capped
 const MAX_DESTROY_SECONDS = 8;
 
+// Camera zoom multiplier (right-hand slider / mouse wheel); saved per device
+export const CAMERA_ZOOM_MIN = 0.45;
+export const CAMERA_ZOOM_MAX = 2.2;
+const clampZoom = (z: number) => Math.max(CAMERA_ZOOM_MIN, Math.min(CAMERA_ZOOM_MAX, Number.isFinite(z) ? z : 1));
+
 const newRunKey = () => `run-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 type Vec3 = [number, number, number];
@@ -64,6 +69,7 @@ export interface ActionResult {
 interface GameState {
   phase: GamePhase;
   cameraMode: CameraMode;
+  cameraZoom: number;
   woodCount: number;
   score: number;
   totalLogsCollected: number;
@@ -190,6 +196,7 @@ interface GameState {
   startChompingSession: () => void;
   checkCombo: () => void;
   cycleCameraMode: () => void;
+  setCameraZoom: (zoom: number) => void;
 }
 
 // =====================================================================
@@ -582,6 +589,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   blueprints: initialWorld.blueprints,
   placedStructures: [],
   cameraMode: 'BEHIND',
+  cameraZoom: clampZoom(persistence.getCameraZoom()),
   isPlacementMode: false,
   isBuildMenuOpen: false,
   selectedBlueprintId: null,
@@ -691,11 +699,18 @@ export const useGameStore = create<GameState>((set, get) => ({
   endGame: () => set({ phase: 'GAMEOVER', isPaused: true, isGameMenuOpen: false, isBuildMenuOpen: false }),
 
   cycleCameraMode: () => set((state) => {
-      const modes: CameraMode[] = ['FOLLOW', 'TOP_DOWN', 'BEHIND', 'CINEMATIC'];
+      const modes: CameraMode[] = ['BEHIND', 'FOLLOW', 'TOP_DOWN', 'CINEMATIC'];
       const currentIndex = modes.indexOf(state.cameraMode);
       const nextIndex = (currentIndex + 1) % modes.length;
       return { cameraMode: modes[nextIndex] };
   }),
+
+  setCameraZoom: (zoom) => {
+      const z = clampZoom(zoom);
+      if (z === get().cameraZoom) return;
+      set({ cameraZoom: z });
+      persistence.setCameraZoom(z);
+  },
 
   addWood: () => set((state) => ({ woodCount: state.woodCount + 1 })),
 
