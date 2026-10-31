@@ -1,7 +1,7 @@
 import React, { Component, useEffect, useState, ReactNode } from 'react';
 import { Game3D } from './components/Game3D';
 import { Controls } from './components/Controls';
-import { useGameStore, isNightTime, BERRIES_FOR_ZOOMIES } from './store';
+import { useGameStore, isNightTime, BERRIES_FOR_ZOOMIES, getComboDeadline, getComboWindow, COMBO_LOGS_PER_LEVEL, COMBO_MAX_MULTIPLIER } from './store';
 import { audioService } from './services/audio';
 import { persistence, SaveSlotInfo, LeaderboardEntry, SAVE_SLOTS } from './services/persistence';
 
@@ -94,43 +94,23 @@ const MenuButton = ({ children, onClick, variant = 'default', disabled = false }
 // =====================================================================
 const ComboUI = () => {
     const combo = useGameStore(state => state.combo);
-    const endCombo = useGameStore(state => state.endCombo);
     const isPaused = useGameStore(state => state.isPaused);
-    const [timeLeft, setTimeLeft] = React.useState(0);
-    const [progress, setProgress] = React.useState(0);
+    const [, setTick] = useState(0);
 
+    // Display only - the store (checkCombo) decides when the combo ends
     useEffect(() => {
         if (!combo.active || isPaused) return;
-
-        const interval = setInterval(() => {
-            const now = Date.now();
-            let duration = 0;
-            let start = 0;
-
-            if (combo.multiplier === 1) {
-                duration = 15000; // 15s for first level
-                start = combo.startTime;
-            } else {
-                duration = 5000; // 5s for subsequent levels (burst window)
-                start = combo.levelStartTime;
-            }
-
-            const elapsed = now - start;
-            const remaining = Math.max(0, duration - elapsed);
-
-            if (remaining <= 0) {
-                endCombo();
-            }
-
-            setTimeLeft(remaining);
-            setProgress((remaining / duration) * 100);
-
-        }, 100);
-
+        const interval = setInterval(() => setTick(t => t + 1), 100);
         return () => clearInterval(interval);
-    }, [combo.active, combo.multiplier, combo.startTime, combo.levelStartTime, endCombo, isPaused]);
+    }, [combo.active, isPaused]);
 
     if (!combo.active) return null;
+
+    const windowMs = getComboWindow(combo.multiplier);
+    const reference = isPaused ? useGameStore.getState().lastPauseStartTime : Date.now();
+    const timeLeft = Math.max(0, getComboDeadline(combo) - reference);
+    const progress = (timeLeft / windowMs) * 100;
+    const atMax = combo.multiplier >= COMBO_MAX_MULTIPLIER;
 
     return (
         <div className="bg-black/50 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 w-full">
@@ -140,12 +120,12 @@ const ComboUI = () => {
             </div>
             <div className="w-full h-1 bg-black/50 rounded-full overflow-hidden my-0.5">
                 <div
-                    className={`h-full transition-all duration-100 ${timeLeft < 2000 ? 'bg-red-500' : 'bg-amber-400'}`}
+                    className={`h-full transition-all duration-100 ${timeLeft < 3000 ? 'bg-red-500' : 'bg-amber-400'}`}
                     style={{ width: `${progress}%` }}
                 />
             </div>
             <div className="text-white/60 text-[8px]">
-                {combo.multiplier === 1 ? `${combo.logsCollected}/2 to Start Multiplier` : `${combo.logsSinceLastLevel}/2 to Next Level`}
+                {atMax ? 'MAX! Keep grabbing logs' : `${combo.logsSinceLastLevel}/${COMBO_LOGS_PER_LEVEL} logs to ${combo.multiplier + 1}x`}
             </div>
         </div>
     );
@@ -157,6 +137,7 @@ const Hud = () => {
     const woodCount = useGameStore(state => state.woodCount);
     const score = useGameStore(state => state.score) || 0;
     const day = useGameStore(state => state.day);
+    const leaderboardRank = useGameStore(state => state.leaderboardRank);
     const isNight = useGameStore(state => isNightTime(state.timeOfDay));
     const berriesEaten = useGameStore(state => state.berriesEaten);
     const breath = useGameStore(state => state.breath);
@@ -178,7 +159,7 @@ const Hud = () => {
                 {/* Wood + score */}
                 <div className="flex items-center justify-between text-[11px] font-bold leading-none">
                     <span>🪵 {woodCount}</span>
-                    <span className="text-amber-300">⭐ {score.toLocaleString()}</span>
+                    <span className="text-amber-300">⭐ {score.toLocaleString()}{leaderboardRank && <span className="text-[9px] text-white/70 ml-1">#{leaderboardRank}</span>}</span>
                 </div>
                 {/* Day + berries */}
                 <div className="flex items-center justify-between text-[9px] text-white/70 font-bold leading-none">
@@ -270,7 +251,7 @@ const NotificationUI = () => {
     };
 
     return (
-        <div className="fixed bottom-40 inset-x-0 z-50 flex justify-center pointer-events-none px-4">
+        <div className="fixed bottom-52 inset-x-0 z-50 flex justify-center pointer-events-none px-4">
             <div
                 className="animate-in slide-in-from-bottom-4 duration-300 cursor-pointer pointer-events-auto w-full max-w-xs"
                 onClick={handleClick}
@@ -293,6 +274,52 @@ const NotificationUI = () => {
                         )}
                     </div>
                 </div>
+            </div>
+        </div>
+    );
+};
+
+// =====================================================================
+// Placement panel - thumb-friendly controls while placing a structure
+// =====================================================================
+const PlacementPanel = () => {
+    const isPlacementMode = useGameStore(state => state.isPlacementMode);
+    const blueprint = useGameStore(state => state.blueprints.find(b => b.id === state.selectedBlueprintId));
+    const woodCount = useGameStore(state => state.woodCount);
+    const valid = useGameStore(state => state.placementValid);
+    const inRiver = useGameStore(state => state.placementInRiver);
+    const reason = useGameStore(state => state.placementReason);
+    const rotatePlacement = useGameStore(state => state.rotatePlacement);
+    const cancelPlacement = useGameStore(state => state.cancelPlacement);
+
+    if (!isPlacementMode || !blueprint) return null;
+
+    const place = () => {
+        // @ts-ignore - consumed by the Woodchuck frame loop
+        window.woodchuckInput.isBuilding = true;
+    };
+
+    return (
+        <div className="fixed bottom-36 inset-x-0 z-40 flex justify-center pointer-events-none px-3">
+            <div className="pointer-events-auto bg-black/70 backdrop-blur-md border border-white/15 rounded-2xl px-2.5 py-2 shadow-2xl w-full max-w-xs">
+                <div className="flex justify-between items-center text-[10px] font-bold text-white mb-1.5">
+                    <span className="truncate">🏗️ {blueprint.name} · 🪵 {blueprint.cost}<span className="text-white/50"> / {woodCount}</span></span>
+                    {valid
+                        ? <span className={inRiver ? 'text-cyan-300' : 'text-green-300'}>{inRiver ? '🌊 Dam! ×2.5 pts' : '✓ Ready'}</span>
+                        : <span className="text-red-300 truncate ml-2">{reason}</span>}
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                    <button className="col-span-1 py-2 rounded-xl bg-white/10 active:bg-white/25 text-white text-sm font-bold" onClick={() => rotatePlacement(-Math.PI / 4)} aria-label="Rotate left">↺</button>
+                    <button
+                        className={`col-span-2 py-2 rounded-xl text-white text-sm font-black active:scale-95 transition-transform ${valid ? 'bg-gradient-to-r from-green-500 to-green-700' : 'bg-gray-600/70 opacity-60'}`}
+                        disabled={!valid}
+                        onClick={place}
+                    >
+                        ✅ PLACE
+                    </button>
+                    <button className="col-span-1 py-2 rounded-xl bg-white/10 active:bg-white/25 text-white text-sm font-bold" onClick={() => rotatePlacement(Math.PI / 4)} aria-label="Rotate right">↻</button>
+                </div>
+                <button className="w-full mt-1.5 text-[10px] text-white/60 font-bold uppercase tracking-wider" onClick={cancelPlacement}>✖ Stop building</button>
             </div>
         </div>
     );
@@ -424,8 +451,14 @@ const SlotList = ({ mode, onDone }: { mode: 'save' | 'load'; onDone?: () => void
     );
 };
 
-const LeaderboardTable = ({ highlightRank }: { highlightRank?: number }) => {
-    const [entries] = useState<LeaderboardEntry[]>(() => persistence.getLeaderboard());
+const LeaderboardTable = ({ highlightId }: { highlightId?: string }) => {
+    const [entries, setEntries] = useState<LeaderboardEntry[]>(() => persistence.getLeaderboard());
+
+    // Refresh while open - the current run keeps updating its own entry
+    useEffect(() => {
+        const interval = setInterval(() => setEntries(persistence.getLeaderboard()), 2000);
+        return () => clearInterval(interval);
+    }, []);
 
     if (entries.length === 0) {
         return <div className="text-sm text-white/60 text-center py-6">No scores yet - be the first chomper on the board!</div>;
@@ -444,18 +477,54 @@ const LeaderboardTable = ({ highlightRank }: { highlightRank?: number }) => {
                     </tr>
                 </thead>
                 <tbody>
-                    {entries.map((e, i) => (
-                        <tr key={`${e.date}-${i}`} className={`border-t border-white/5 ${highlightRank === i + 1 ? 'bg-amber-500/30 font-bold' : ''}`}>
-                            <td className="py-1.5 px-2">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</td>
-                            <td className="py-1.5 px-2 truncate max-w-[110px]">{e.name}</td>
-                            <td className="py-1.5 px-2 text-right font-mono">{e.score.toLocaleString()}</td>
-                            <td className="py-1.5 px-2 text-right">{e.day}</td>
-                            <td className="py-1.5 px-2 text-right">{e.logs}</td>
-                        </tr>
-                    ))}
+                    {entries.map((e, i) => {
+                        const isCurrent = !!highlightId && e.id === highlightId;
+                        return (
+                            <tr key={e.id || `${e.date}-${i}`} className={`border-t border-white/5 ${isCurrent ? 'bg-amber-500/30 font-bold' : ''}`}>
+                                <td className="py-1.5 px-2">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</td>
+                                <td className="py-1.5 px-2 truncate max-w-[110px]">{e.name}{isCurrent && <span className="text-amber-300 text-[9px] ml-1">(this run)</span>}</td>
+                                <td className="py-1.5 px-2 text-right font-mono">{e.score.toLocaleString()}</td>
+                                <td className="py-1.5 px-2 text-right">{e.day}</td>
+                                <td className="py-1.5 px-2 text-right">{e.logs}</td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
         </div>
+    );
+};
+
+// Player name (stored on this device, used for the live leaderboard entry)
+const NameEditor = ({ compact = false }: { compact?: boolean }) => {
+    const playerName = useGameStore(state => state.playerName);
+    const setPlayerName = useGameStore(state => state.setPlayerName);
+    const [value, setValue] = useState(playerName);
+    const [saved, setSaved] = useState(false);
+
+    const submit = (e?: React.FormEvent) => {
+        e?.preventDefault();
+        setPlayerName(value);
+        setValue(useGameStore.getState().playerName);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 1200);
+    };
+
+    return (
+        <form onSubmit={submit} className={`flex gap-2 ${compact ? '' : 'mb-2'}`}>
+            <input
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onBlur={() => { if (value !== playerName) submit(); }}
+                maxLength={16}
+                placeholder="Your name"
+                aria-label="Your name"
+                className="flex-1 min-w-0 select-text bg-black/40 border border-white/20 rounded-xl px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-amber-400"
+            />
+            <button type="submit" className="bg-amber-500 hover:bg-amber-400 text-black font-black px-3 rounded-xl text-xs active:scale-95">
+                {saved ? '✓' : 'Save'}
+            </button>
+        </form>
     );
 };
 
@@ -482,13 +551,15 @@ const GameMenu = () => {
     const startGame = useGameStore(state => state.startGame);
     const score = useGameStore(state => state.score);
     const day = useGameStore(state => state.day);
+    const runKey = useGameStore(state => state.runKey);
+    const leaderboardRank = useGameStore(state => state.leaderboardRank);
     const [view, setView] = useState<MenuView>('main');
 
     return (
         <div className="absolute inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 animate-in fade-in duration-150">
             {view === 'main' && (
                 <Panel title="Paused">
-                    <div className="text-xs text-white/60 mb-3">⭐ {score.toLocaleString()} · Day {day}</div>
+                    <div className="text-xs text-white/60 mb-3">⭐ {score.toLocaleString()} · Day {day}{leaderboardRank ? ` · 🏆 #${leaderboardRank}` : ''}</div>
                     <div className="space-y-2">
                         <MenuButton variant="primary" onClick={closeGameMenu}>▶ Resume</MenuButton>
                         <MenuButton onClick={() => setView('save')}>💾 Save Game</MenuButton>
@@ -510,7 +581,9 @@ const GameMenu = () => {
             )}
             {view === 'leaderboard' && (
                 <Panel title="Leaderboard" onBack={() => setView('main')}>
-                    <LeaderboardTable />
+                    <NameEditor />
+                    <LeaderboardTable highlightId={runKey} />
+                    <p className="text-[10px] text-white/50 mt-2">Your current run updates automatically.</p>
                 </Panel>
             )}
             {view === 'confirmNew' && (
@@ -576,6 +649,7 @@ const StartScreen = () => {
             </div>
 
             <div className="w-full max-w-xs space-y-2">
+                <NameEditor compact />
                 <MenuButton variant="primary" onClick={() => startGame()}>START CHOMPING</MenuButton>
                 <div className="grid grid-cols-2 gap-2">
                     <MenuButton onClick={() => setView('load')} disabled={!hasSaves}>📂 Load</MenuButton>
@@ -591,22 +665,13 @@ const StartScreen = () => {
 // =====================================================================
 const GameOverScreen = () => {
     const startGame = useGameStore(state => state.startGame);
-    const submitScore = useGameStore(state => state.submitScore);
-    const scoreSubmitted = useGameStore(state => state.scoreSubmitted);
     const score = useGameStore(state => state.score) || 0;
     const totalLogs = useGameStore(state => state.totalLogsCollected) || 0;
     const structures = useGameStore(state => state.placedStructures.length);
     const day = useGameStore(state => state.day);
-
-    const [name, setName] = useState(() => persistence.getPlayerName());
-    const [rank, setRank] = useState<number | null>(null);
+    const runKey = useGameStore(state => state.runKey);
+    const leaderboardRank = useGameStore(state => state.leaderboardRank);
     const [view, setView] = useState<'main' | 'load'>('main');
-
-    const handleSubmit = (e?: React.FormEvent) => {
-        e?.preventDefault();
-        if (scoreSubmitted) return;
-        setRank(submitScore(name));
-    };
 
     if (view === 'load') {
         return (
@@ -623,7 +688,10 @@ const GameOverScreen = () => {
 
             <div className="w-full max-w-sm bg-black/40 p-4 rounded-2xl border border-white/10 text-center mb-3 backdrop-blur-md shadow-2xl">
                 <div className="text-amber-400 font-bold uppercase tracking-widest text-[10px]">Final Score</div>
-                <div className="text-5xl font-black text-white mb-3 drop-shadow-lg tracking-tight">{score.toLocaleString()}</div>
+                <div className="text-5xl font-black text-white mb-1 drop-shadow-lg tracking-tight">{score.toLocaleString()}</div>
+                <div className="text-xs font-bold text-amber-300 mb-3">
+                    {score <= 0 ? 'Score some points to get on the leaderboard!' : leaderboardRank ? `#${leaderboardRank} on the leaderboard!` : 'Not quite top 10 this time.'}
+                </div>
                 <div className="grid grid-cols-3 gap-2 text-left">
                     <div className="bg-white/5 p-2 rounded-xl border border-white/5">
                         <div className="text-[9px] uppercase text-white/50 font-bold">Logs</div>
@@ -641,25 +709,8 @@ const GameOverScreen = () => {
             </div>
 
             <div className="w-full max-w-sm mb-3">
-                {!scoreSubmitted ? (
-                    <form onSubmit={handleSubmit} className="flex gap-2">
-                        <input
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            maxLength={16}
-                            placeholder="Your name"
-                            className="flex-1 select-text bg-black/40 border border-white/20 rounded-xl px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-amber-400"
-                        />
-                        <button type="submit" className="bg-amber-500 hover:bg-amber-400 text-black font-black px-4 rounded-xl text-sm active:scale-95">
-                            Submit
-                        </button>
-                    </form>
-                ) : (
-                    <div className="text-center text-xs font-bold text-amber-300 mb-1">
-                        {rank && rank > 0 ? `You placed #${rank} on the leaderboard!` : 'Score recorded - not quite top 10 this time.'}
-                    </div>
-                )}
-                {scoreSubmitted && <div className="mt-2"><LeaderboardTable highlightRank={rank ?? undefined} /></div>}
+                <NameEditor />
+                <LeaderboardTable highlightId={runKey} />
             </div>
 
             <div className="w-full max-w-sm grid grid-cols-2 gap-2">
@@ -703,6 +754,7 @@ export default function App() {
                     <Hud />
                     <PowerupPills />
                     <NotificationUI />
+                    <PlacementPanel />
                     <Controls />
                     <BuildMenuOverlay />
                     <GameMenuOverlay />

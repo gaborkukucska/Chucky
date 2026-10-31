@@ -135,7 +135,7 @@ const DiveButton = () => {
 
     const empty = breath <= 0.02;
     return (
-        <div className="absolute bottom-10 right-5 z-50 flex flex-col items-center gap-1 pointer-events-none">
+        <div className="absolute bottom-10 left-5 z-50 flex flex-col items-center gap-1 pointer-events-none">
             <button
                 className={`w-16 h-16 rounded-full pointer-events-auto touch-none select-none shadow-xl border-2 flex items-center justify-center transition-transform
                     ${held ? 'scale-90 bg-cyan-700/80 border-cyan-200' : 'bg-cyan-600/60 border-white/40'} ${empty ? 'opacity-40' : ''}`}
@@ -285,6 +285,11 @@ if (typeof window !== 'undefined') {
             e.preventDefault();
             keyboardState.diveKey = true;
             setInput({ dive: true });
+        } else if (key === 'r' || key === 'e' || key === 'q') {
+            const s = useGameStore.getState();
+            if (s.isPlacementMode) s.rotatePlacement(key === 'q' ? -Math.PI / 4 : Math.PI / 4);
+        } else if (e.key === 'Enter') {
+            if (useGameStore.getState().isPlacementMode) setInput({ isBuilding: true });
         } else if (e.key === 'Escape') {
             const s = useGameStore.getState();
             if (s.isGameMenuOpen) s.closeGameMenu();

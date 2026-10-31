@@ -44,7 +44,9 @@ const CHOP_SOUND_INTERVAL = 0.25;
 const MAGNET_VISUAL_RADIUS = 30; // Log Magnet territory sphere (visual only)
 
 // Building / destroying
-const PLACEMENT_DISTANCE = 4;
+const PLACEMENT_GAP = 1;            // Space between Chucky and the edge of the structure being placed
+const PLACEMENT_MIN_DISTANCE = 3;
+const MIN_STRUCTURE_SPACING = 0.5;  // Two structures may overlap by up to half their combined radii
 const STRUCTURE_LOG_RADIUS = 0.4;
 const STRUCTURE_LOG_HALF_LENGTH = 1.5;
 const DESTROY_RANGE = 1.5;       // Distance from the nearest structure log to offer DESTROY
@@ -79,6 +81,7 @@ interface StructureCollider {
     cx: number;
     cz: number;
     boundR: number;
+    topY: number;       // Highest point - Chucky can swim/walk over lower (e.g. sunken) structures
     segs: Float32Array; // x1, z1, x2, z2 per log
 }
 
@@ -92,6 +95,7 @@ const buildCollider = (s: PlacedStructure, bp: Blueprint): StructureCollider => 
     _q.setFromEuler(_e.set(s.rotation[0], s.rotation[1], s.rotation[2]));
     const segs = new Float32Array(bp.logs.length * 4);
     let boundR = 0;
+    let topY = -Infinity;
     bp.logs.forEach((log, i) => {
         _c.set(log.position[0], log.position[1], log.position[2]).applyQuaternion(_q);
         _lq.setFromEuler(_e.set(log.rotation[0], log.rotation[1], log.rotation[2]));
@@ -103,8 +107,23 @@ const buildCollider = (s: PlacedStructure, bp: Blueprint): StructureCollider => 
         segs[i * 4 + 2] = cx + _axis.x;
         segs[i * 4 + 3] = cz + _axis.z;
         boundR = Math.max(boundR, Math.hypot(_c.x, _c.z) + STRUCTURE_LOG_HALF_LENGTH + STRUCTURE_LOG_RADIUS);
+        topY = Math.max(topY, s.position[1] + _c.y + Math.abs(_axis.y) + STRUCTURE_LOG_RADIUS);
     });
-    return { cx: s.position[0], cz: s.position[2], boundR, segs };
+    return { cx: s.position[0], cz: s.position[2], boundR, topY, segs };
+};
+
+// Horizontal radius of a blueprint around its origin (placement distance + spacing check)
+const footprintCache = new WeakMap<Blueprint, number>();
+const blueprintFootprint = (bp: Blueprint) => {
+    let r = footprintCache.get(bp);
+    if (r === undefined) {
+        r = 0;
+        for (const log of bp.logs) {
+            r = Math.max(r, Math.hypot(log.position[0], log.position[2]) + STRUCTURE_LOG_HALF_LENGTH + STRUCTURE_LOG_RADIUS);
+        }
+        footprintCache.set(bp, r);
+    }
+    return r;
 };
 
 // Closest point on segment (x1,z1)-(x2,z2) to (px,pz). Writes into out[0..1], returns distance.
@@ -129,6 +148,7 @@ export const Woodchuck = () => {
     const isTreePowerupActive = useGameStore(state => state.isTreePowerupActive);
     const isLogPowerupActive = useGameStore(state => state.isLogPowerupActive);
     const isPlacementMode = useGameStore(state => state.isPlacementMode);
+    const placementValid = useGameStore(state => state.placementValid);
     const runId = useGameStore(state => state.runId);
     const isNight = useGameStore(state => isNightTime(state.timeOfDay));
     const lastChompTime = useGameStore(state => state.lastChompTime);
@@ -359,6 +379,7 @@ export const Woodchuck = () => {
             const col = cache.get(ps.id);
             if (!col) continue;
             if (Math.hypot(nextX - col.cx, nextZ - col.cz) > col.boundR + PLAYER_RADIUS + DESTROY_RELEASE_RANGE) continue;
+            if (y - PLAYER_RADIUS > col.topY) continue; // Above a low / sunken structure
 
             let structDist = Infinity;
             const segs = col.segs;
@@ -427,12 +448,37 @@ export const Woodchuck = () => {
             setUnderwater(nowUnderwater);
         }
 
-        // --- Building: placement preview + place ---
-        const placeX = x + Math.sin(currentRotationY.current) * PLACEMENT_DISTANCE;
-        const placeZ = z + Math.cos(currentRotationY.current) * PLACEMENT_DISTANCE;
+        // --- Building: placement preview, validity + place ---
+        // The preview sits in front of Chucky, far enough that even big structures never land on him.
+        // Yaw = Chucky's facing + the rotation offset (🔄 / R).
+        const selectedBp = s.isPlacementMode ? s.blueprints.find(b => b.id === s.selectedBlueprintId) : undefined;
+        const footprint = selectedBp ? blueprintFootprint(selectedBp) : 0;
+        const placeDist = Math.max(PLACEMENT_MIN_DISTANCE, PLAYER_RADIUS + footprint + PLACEMENT_GAP);
+        const placeX = x + Math.sin(currentRotationY.current) * placeDist;
+        const placeZ = z + Math.cos(currentRotationY.current) * placeDist;
         const placeY = calculateTerrainHeight(placeX, placeZ);
         const placeYaw = currentRotationY.current + s.placementRotation[1];
         const placePitch = s.placementRotation[0];
+
+        let placementOk = false;
+        if (selectedBp) {
+            let reason: string | null = null;
+            if (s.woodCount < selectedBp.cost) {
+                reason = `Need ${selectedBp.cost} wood`;
+            } else if (Math.abs(placeX) > MAP_LIMIT || Math.abs(placeZ) > MAP_LIMIT) {
+                reason = 'Too close to the edge of the map';
+            } else {
+                for (const ps of s.placedStructures) {
+                    const col = cache.get(ps.id);
+                    if (col && Math.hypot(placeX - col.cx, placeZ - col.cz) < (footprint + col.boundR) * MIN_STRUCTURE_SPACING) {
+                        reason = 'Too close to another structure';
+                        break;
+                    }
+                }
+            }
+            placementOk = reason === null;
+            s.setPlacementStatus(placementOk, placeY < WATER_LEVEL, reason);
+        }
 
         if (s.isPlacementMode && previewRef.current) {
             previewRef.current.position.set(placeX, placeY, placeZ);
@@ -443,7 +489,7 @@ export const Woodchuck = () => {
             // Consume the button press whatever happens
             // @ts-ignore
             window.woodchuckInput.isBuilding = false;
-            if (s.isPlacementMode) {
+            if (s.isPlacementMode && placementOk) {
                 s.placeStructure([placeX, placeY, placeZ], [placePitch, placeYaw, 0]);
             }
         }
@@ -637,7 +683,7 @@ export const Woodchuck = () => {
             {/* Placement preview */}
             {isPlacementMode && (
                 <group ref={previewRef}>
-                    <PreviewStructureOverlay />
+                    <PreviewStructureOverlay valid={placementValid} />
                 </group>
             )}
         </group>

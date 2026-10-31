@@ -613,7 +613,7 @@ export const PlacedStructureRenderer = React.memo(({ data, blueprints }: { data:
     );
 });
 
-export const PreviewStructureOverlay = forwardRef<THREE.Group, {}>((props, ref) => {
+export const PreviewStructureOverlay = forwardRef<THREE.Group, { valid?: boolean }>(({ valid = true }, ref) => {
     const selectedBlueprintId = useGameStore(state => state.selectedBlueprintId);
     const blueprints = useGameStore(state => state.blueprints);
     const blueprint = blueprints.find(b => b.id === selectedBlueprintId);
@@ -625,7 +625,7 @@ export const PreviewStructureOverlay = forwardRef<THREE.Group, {}>((props, ref) 
             {blueprint.logs.map((log, i) => (
                 <mesh key={i} position={log.position} rotation={log.rotation}>
                     <cylinderGeometry args={[0.4, 0.4, 3, 8]} />
-                    <meshBasicMaterial color="#00FFFF" transparent opacity={0.6} depthTest={false} depthWrite={false} />
+                    <meshBasicMaterial color={valid ? "#00FFFF" : "#FF3B30"} transparent opacity={0.6} depthTest={false} depthWrite={false} />
                     <Edges color="white" threshold={15} />
                 </mesh>
             ))}

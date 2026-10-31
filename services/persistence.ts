@@ -37,6 +37,7 @@ export interface SaveData {
     player: { position: Vec3; facing: number };
     powerups: { treeMs: number; logMs: number; speedMs: number };
     seenPopups: { tree: boolean; log: boolean; speed: boolean };
+    runKey?: string;                    // Leaderboard entry this run keeps updating
 }
 
 export interface SaveSlotInfo {
@@ -48,6 +49,7 @@ export interface SaveSlotInfo {
 }
 
 export interface LeaderboardEntry {
+    id?: string;   // Run key - the live run updates its own entry
     name: string;
     score: number;
     logs: number;
@@ -132,6 +134,17 @@ export const persistence = {
     addLeaderboardEntry: (entry: LeaderboardEntry): number => {
         const clean: LeaderboardEntry = { ...entry, name: sanitizeName(entry.name) };
         const list = [...persistence.getLeaderboard(), clean]
+            .sort((a, b) => b.score - a.score || a.date - b.date)
+            .slice(0, LEADERBOARD_SIZE);
+        writeJson(LEADERBOARD_KEY, list);
+        const idx = list.indexOf(clean);
+        return idx === -1 ? -1 : idx + 1;
+    },
+
+    /** Inserts or replaces the entry with the same id (the live run). Returns the 1-based rank, or -1. */
+    upsertLeaderboardEntry: (entry: LeaderboardEntry): number => {
+        const clean: LeaderboardEntry = { ...entry, name: sanitizeName(entry.name) };
+        const list = [...persistence.getLeaderboard().filter(e => !clean.id || e.id !== clean.id), clean]
             .sort((a, b) => b.score - a.score || a.date - b.date)
             .slice(0, LEADERBOARD_SIZE);
         writeJson(LEADERBOARD_KEY, list);

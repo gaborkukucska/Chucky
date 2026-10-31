@@ -27,6 +27,27 @@ const SPEED_POWERUP_DURATION = 20000;  // Zoomies
 // Score needed to unlock each blueprint (index 0 = unlocked by collecting 3 logs)
 const BLUEPRINT_THRESHOLDS = [0, 150, 300, 500, 750, 1050, 1400, 1800, 2250, 2750];
 
+// Combo: collect the next log before the window runs out; every 2 logs = +1 multiplier (max 4x).
+// Shorter windows at higher multipliers. (Previously the HUD and the store used different,
+// contradictory timings, which made 3x / Magnet nearly impossible.)
+const COMBO_WINDOWS = [0, 20000, 15000, 12000, 10000]; // ms, indexed by multiplier
+export const COMBO_LOGS_PER_LEVEL = 2;
+export const COMBO_MAX_MULTIPLIER = 4;
+export const getComboWindow = (multiplier: number) => COMBO_WINDOWS[Math.max(1, Math.min(COMBO_MAX_MULTIPLIER, multiplier))];
+export const getComboDeadline = (combo: ComboState) => combo.lastLogTime + getComboWindow(combo.multiplier);
+
+// Building scores points per log of the blueprint - more for a real dam (placed in the river).
+// Demolishing a structure takes its points back, so place/destroy can't be farmed.
+const BUILD_POINTS_PER_LOG_LAND = 2;
+const BUILD_POINTS_PER_LOG_RIVER = 5;
+
+// Leaderboard: the current run is written automatically (throttled)
+const LEADERBOARD_SYNC_INTERVAL = 2000;
+let lastLeaderboardSync = 0;
+let lastLeaderboardSig = '';
+
+const newRunKey = () => `run-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+
 type Vec3 = [number, number, number];
 
 export interface ActionResult {
@@ -63,11 +84,18 @@ interface GameState {
   isPlacementMode: boolean;
   isBuildMenuOpen: boolean;
   selectedBlueprintId: string | null;
-  placementRotation: Vec3; // Euler angles
+  placementRotation: Vec3; // Euler angles; [1] = yaw offset relative to Chucky's facing
+  placementValid: boolean;
+  placementInRiver: boolean;
+  placementReason: string | null;
 
   // Game menu (pause menu: new / save / load / leaderboard)
   isGameMenuOpen: boolean;
-  scoreSubmitted: boolean;
+
+  // Live leaderboard
+  runKey: string;                // Identifies this run's leaderboard entry (kept across save/load)
+  playerName: string;
+  leaderboardRank: number | null;
 
   // Destruction Mode
   destroyTargetId: string | null;
@@ -134,6 +162,8 @@ interface GameState {
   closeBuildMenu: () => void;
   selectBlueprint: (id: string) => void;
   cancelPlacement: () => void;
+  rotatePlacement: (deltaYaw: number) => void;
+  setPlacementStatus: (valid: boolean, inRiver: boolean, reason: string | null) => void;
   updatePlacementRotation: (x: number, y: number) => void; // Joystick input
   placeStructure: (position: Vec3, rotation?: Vec3) => void;
   setDestroyTarget: (id: string | null) => void;
@@ -147,7 +177,8 @@ interface GameState {
   closeGameMenu: () => void;
   saveGame: (slot: number) => ActionResult;
   loadGame: (slot: number) => ActionResult;
-  submitScore: (name: string) => number;
+  setPlayerName: (name: string) => void;
+  syncLeaderboard: (force?: boolean) => void;
 
   // Combo Logic
   startChompingSession: () => void;
@@ -382,6 +413,45 @@ const round3 = (v: number) => Math.round(v * 1000) / 1000;
 const roundVec = (v: Vec3 | number[]): Vec3 => [round3(v[0]), round3(v[1]), round3(v[2])];
 
 // =====================================================================
+// Blueprint unlocks (shared by log collection and building)
+// BP 0 unlocks after 3 logs; the rest by score. Each unlock adds +100 score,
+// which can cascade into the next unlock (as before).
+// =====================================================================
+const applyUnlocks = (blueprints: Blueprint[], totalLogs: number, score: number) => {
+    const newBlueprints = [...blueprints];
+    let newScore = score;
+    let notification: Notification | null = null;
+
+    if (!newBlueprints[0].unlocked && totalLogs >= 3) {
+        newBlueprints[0] = { ...newBlueprints[0], unlocked: true };
+        newScore += 100;
+        notification = {
+            id: `unlock-bp-0`,
+            title: "NEW BLUEPRINT!",
+            message: `Unlocked: ${newBlueprints[0].name}`,
+            type: 'unlock',
+            blueprintId: newBlueprints[0].id
+        };
+    }
+
+    for (let i = 1; i < BLUEPRINT_THRESHOLDS.length; i++) {
+        if (!newBlueprints[i].unlocked && newScore >= BLUEPRINT_THRESHOLDS[i]) {
+            newBlueprints[i] = { ...newBlueprints[i], unlocked: true };
+            newScore += 100; // Bonus for unlocking
+            notification = {
+                id: `unlock-bp-${i}`,
+                title: "NEW BLUEPRINT!",
+                message: `Unlocked: ${newBlueprints[i].name}`,
+                type: 'unlock',
+                blueprintId: newBlueprints[i].id
+            };
+        }
+    }
+
+    return { blueprints: newBlueprints, score: newScore, notification };
+};
+
+// =====================================================================
 // Log collection (shared by loose logs and placed logs)
 // =====================================================================
 const applyLogCollected = (state: GameState): Partial<GameState> => {
@@ -408,49 +478,19 @@ const applyLogCollected = (state: GameState): Partial<GameState> => {
 
     newCombo.logsCollected++;
     newCombo.logsSinceLastLevel++;
-    newCombo.lastLogTime = now;
+    newCombo.lastLogTime = now; // Every log restarts the combo window (see getComboDeadline)
 
     // Points for Combo Multiplier
     if (newCombo.multiplier > 1) {
         pointsGained += (newCombo.multiplier - 1);
     }
 
-    // Check for Level Up
-    // Level 1 (2x): 2 logs in < 40s total
-    if (newCombo.multiplier === 1) {
-        if (newCombo.logsCollected >= 2 && (now - newCombo.startTime < 40000)) {
-            newCombo.multiplier = 2;
-            newCombo.logsSinceLastLevel = 0;
-            newCombo.levelStartTime = now;
-            pointsGained += 1;
-        }
-    }
-    // Level 2 (3x): 2 logs in < 30s
-    else if (newCombo.multiplier === 2) {
-        if (newCombo.logsSinceLastLevel >= 2 && (now - newCombo.levelStartTime < 30000)) {
-            newCombo.multiplier = 3;
-            newCombo.logsSinceLastLevel = 0;
-            newCombo.levelStartTime = now;
-            pointsGained += 2;
-        }
-    }
-    // Level 3 (4x): 2 logs in < 25s
-    else if (newCombo.multiplier === 3) {
-        if (newCombo.logsSinceLastLevel >= 2 && (now - newCombo.levelStartTime < 25000)) {
-            newCombo.multiplier = 4;
-            newCombo.logsSinceLastLevel = 0;
-            newCombo.levelStartTime = now;
-            pointsGained += 3;
-        }
-    }
-
-    // Reset logic if too slow
-    if (newCombo.multiplier >= 2) {
-        const timeout = newCombo.multiplier === 2 ? 30000 : 25000;
-        if (now - newCombo.levelStartTime > timeout) {
-             newCombo.logsSinceLastLevel = 1;
-             newCombo.levelStartTime = now;
-        }
+    // Level up: every COMBO_LOGS_PER_LEVEL logs inside the window (bonus +1 / +2 / +3, as before)
+    if (newCombo.multiplier < COMBO_MAX_MULTIPLIER && newCombo.logsSinceLastLevel >= COMBO_LOGS_PER_LEVEL) {
+        newCombo.multiplier += 1;
+        newCombo.logsSinceLastLevel = 0;
+        newCombo.levelStartTime = now;
+        pointsGained += newCombo.multiplier - 1;
     }
 
     // Log Powerup Logic
@@ -487,46 +527,18 @@ const applyLogCollected = (state: GameState): Partial<GameState> => {
         shouldPause = true;
     }
 
-    let newScore = state.score + pointsGained;
-    const newBlueprints = [...state.blueprints];
-
-    // Blueprint Unlocking Logic
-    // BP 0: 3 Logs Total (Initial Drive)
-    if (!newBlueprints[0].unlocked && newTotalLogs >= 3) {
-        newBlueprints[0] = { ...newBlueprints[0], unlocked: true };
-        newScore += 100;
-        notification = {
-            id: `unlock-bp-0`,
-            title: "NEW BLUEPRINT!",
-            message: `Unlocked: ${newBlueprints[0].name}`,
-            type: 'unlock',
-            blueprintId: newBlueprints[0].id
-        };
+    const unlocks = applyUnlocks(state.blueprints, newTotalLogs, state.score + pointsGained);
+    if (unlocks.notification) {
+        notification = unlocks.notification;
         shouldPause = true;
-    }
-
-    // Subsequent BPs: Score Thresholds
-    for (let i = 1; i < BLUEPRINT_THRESHOLDS.length; i++) {
-        if (!newBlueprints[i].unlocked && newScore >= BLUEPRINT_THRESHOLDS[i]) {
-            newBlueprints[i] = { ...newBlueprints[i], unlocked: true };
-            newScore += 100; // Bonus for unlocking
-            notification = {
-                id: `unlock-bp-${i}`,
-                title: "NEW BLUEPRINT!",
-                message: `Unlocked: ${newBlueprints[i].name}`,
-                type: 'unlock',
-                blueprintId: newBlueprints[i].id
-            };
-            shouldPause = true;
-        }
     }
 
     return {
         woodCount: state.woodCount + (1 * newCombo.multiplier),
-        score: newScore,
+        score: unlocks.score,
         totalLogsCollected: newTotalLogs,
         combo: newCombo,
-        blueprints: newBlueprints,
+        blueprints: unlocks.blueprints,
         notification: notification,
         isLogPowerupActive,
         logPowerupEndTime,
@@ -567,9 +579,15 @@ export const useGameStore = create<GameState>((set, get) => ({
   isBuildMenuOpen: false,
   selectedBlueprintId: null,
   placementRotation: [0, 0, 0],
+  placementValid: true,
+  placementInRiver: false,
+  placementReason: null,
 
   isGameMenuOpen: false,
-  scoreSubmitted: false,
+
+  runKey: newRunKey(),
+  playerName: persistence.getPlayerName() || 'Chucky',
+  leaderboardRank: null,
 
   // Destruction
   destroyTargetId: null,
@@ -614,6 +632,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       return {
           phase: 'PLAYING',
           runId: state.runId + 1,
+          runKey: newRunKey(),
+          leaderboardRank: null,
           spawnPoint: null,
           spawnFacing: Math.PI / 2,
           worldSeed: world.worldSeed,
@@ -634,8 +654,10 @@ export const useGameStore = create<GameState>((set, get) => ({
           isPlacementMode: false,
           selectedBlueprintId: null,
           placementRotation: [0, 0, 0],
+          placementValid: true,
+          placementInRiver: false,
+          placementReason: null,
           isGameMenuOpen: false,
-          scoreSubmitted: false,
           destroyTargetId: null,
           isDestroying: false,
           isPaused: false,
@@ -823,14 +845,17 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   updateDamIntegrity: (val) => set({ damIntegrity: val }),
 
-  takeDamage: (amount) => set((state) => {
-      if (state.phase !== 'PLAYING') return state;
-      const newHealth = Math.max(0, state.health - amount);
+  takeDamage: (amount) => {
+      const before = get();
+      if (before.phase !== 'PLAYING') return;
+      const newHealth = Math.max(0, before.health - amount);
       if (newHealth === 0) {
-          return { health: 0, phase: 'GAMEOVER', isPaused: true, isGameMenuOpen: false, isBuildMenuOpen: false, isPlacementMode: false };
+          set({ health: 0, phase: 'GAMEOVER', isPaused: true, isGameMenuOpen: false, isBuildMenuOpen: false, isPlacementMode: false, isDestroying: false });
+          get().syncLeaderboard(true); // Final score
+          return;
       }
-      return { health: newHealth };
-  }),
+      set({ health: newHealth });
+  },
 
   heal: (amount) => set((state) => ({
       health: Math.min(state.maxHealth, state.health + amount)
@@ -906,7 +931,17 @@ export const useGameStore = create<GameState>((set, get) => ({
       ...(state.isGameMenuOpen || state.notification ? {} : resumeFields(state))
   })),
 
-  cancelPlacement: () => set({ isPlacementMode: false, selectedBlueprintId: null, placementRotation: [0, 0, 0] }),
+  cancelPlacement: () => set({ isPlacementMode: false, selectedBlueprintId: null, placementRotation: [0, 0, 0], placementValid: true, placementInRiver: false, placementReason: null }),
+
+  rotatePlacement: (deltaYaw) => set((state) => ({
+      placementRotation: [state.placementRotation[0], (state.placementRotation[1] + deltaYaw) % (Math.PI * 2), state.placementRotation[2]]
+  })),
+
+  setPlacementStatus: (valid, inRiver, reason) => set((state) =>
+      state.placementValid === valid && state.placementInRiver === inRiver && state.placementReason === reason
+          ? state
+          : { placementValid: valid, placementInRiver: inRiver, placementReason: reason }
+  ),
 
   updatePlacementRotation: (x, y) => set((state) => {
       // x -> rotate around Y (yaw), y -> rotate around X (pitch/tilt)
@@ -920,30 +955,45 @@ export const useGameStore = create<GameState>((set, get) => ({
       };
   }),
 
+  // Building scores points (more in the river - that's a dam!) and can unlock blueprints.
+  // While you can still afford it, you stay in placement mode to build a whole dam line.
   placeStructure: (position, rotation) => set((state) => {
       if (!state.selectedBlueprintId) return state;
       const blueprint = state.blueprints.find(b => b.id === state.selectedBlueprintId);
       if (!blueprint) return state;
 
-      if (state.woodCount < blueprint.cost) return state; // Should be checked in UI too
+      if (state.woodCount < blueprint.cost) return state; // Also checked by the preview
+
+      const inRiver = calculateTerrainHeight(position[0], position[2]) < WATER_LEVEL;
+      const points = blueprint.cost * (inRiver ? BUILD_POINTS_PER_LOG_RIVER : BUILD_POINTS_PER_LOG_LAND);
 
       const newStructure: PlacedStructure = {
-          id: `struct-${Date.now()}`,
+          id: `struct-${Date.now()}-${Math.floor(Math.random() * 1e4)}`,
           blueprintId: blueprint.id,
           position: position,
           rotation: rotation ?? state.placementRotation,
           health: blueprint.cost * 10, // Arbitrary health based on cost
-          maxHealth: blueprint.cost * 10
+          maxHealth: blueprint.cost * 10,
+          points
       };
 
       audioService.playSplash(); // Sound effect for placement
 
+      const woodLeft = state.woodCount - blueprint.cost;
+      const keepPlacing = woodLeft >= blueprint.cost;
+      const unlocks = applyUnlocks(state.blueprints, state.totalLogsCollected, state.score + points);
+
       return {
-          woodCount: state.woodCount - blueprint.cost,
+          woodCount: woodLeft,
+          score: unlocks.score,
+          blueprints: unlocks.blueprints,
           placedStructures: [...state.placedStructures, newStructure],
-          isPlacementMode: false,
-          selectedBlueprintId: null,
-          placementRotation: [0, 0, 0]
+          isPlacementMode: keepPlacing,
+          selectedBlueprintId: keepPlacing ? state.selectedBlueprintId : null,
+          placementValid: true,
+          placementReason: null,
+          ...(keepPlacing ? {} : { placementRotation: [0, 0, 0] as Vec3, placementInRiver: false }),
+          ...(unlocks.notification ? notifyAndPause(state, unlocks.notification) : {})
       };
   }),
 
@@ -992,6 +1042,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           return {
               placedStructures: state.placedStructures.filter(s => s.id !== state.destroyTargetId),
               looseLogs: [...state.looseLogs, ...newLooseLogs],
+              // Demolishing returns 80% of the logs but takes back the build points
+              score: Math.max(0, state.score - (structure.points ?? 0)),
               isDestroying: false,
               destroyTargetId: null
           };
@@ -1023,10 +1075,13 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // --- Game menu ---
 
-  openGameMenu: () => set((state) => {
-      if (state.phase !== 'PLAYING' || state.isGameMenuOpen) return state;
-      return { isGameMenuOpen: true, isDestroying: false, ...pauseFields(state) };
-  }),
+  openGameMenu: () => {
+      set((state) => {
+          if (state.phase !== 'PLAYING' || state.isGameMenuOpen) return state;
+          return { isGameMenuOpen: true, isDestroying: false, ...pauseFields(state) };
+      });
+      get().syncLeaderboard(true); // So the leaderboard view shows the current run
+  },
 
   closeGameMenu: () => set((state) => {
       if (!state.isGameMenuOpen) return state;
@@ -1083,10 +1138,12 @@ export const useGameStore = create<GameState>((set, get) => ({
               logMs: remaining(s.isLogPowerupActive, s.logPowerupEndTime),
               speedMs: remaining(s.isSpeedPowerupActive, s.speedPowerupEndTime)
           },
-          seenPopups: { tree: s.hasSeenTreePowerupPopup, log: s.hasSeenLogPowerupPopup, speed: s.hasSeenSpeedPowerupPopup }
+          seenPopups: { tree: s.hasSeenTreePowerupPopup, log: s.hasSeenLogPowerupPopup, speed: s.hasSeenSpeedPowerupPopup },
+          runKey: s.runKey
       };
 
       const ok = persistence.writeSlot(slot, data);
+      get().syncLeaderboard(true);
       return ok
           ? { ok: true, message: `Saved to slot ${slot}.` }
           : { ok: false, message: 'Could not save (storage full or blocked).' };
@@ -1157,8 +1214,12 @@ export const useGameStore = create<GameState>((set, get) => ({
               isPlacementMode: false,
               selectedBlueprintId: null,
               placementRotation: [0, 0, 0],
+              placementValid: true,
+              placementInRiver: false,
+              placementReason: null,
               isGameMenuOpen: false,
-              scoreSubmitted: false,
+              runKey: data.runKey || newRunKey(),
+              leaderboardRank: null,
               destroyTargetId: null,
               isDestroying: false,
               isPaused: false,
@@ -1173,21 +1234,36 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
   },
 
-  submitScore: (name) => {
-      const s = get();
-      if (s.scoreSubmitted) return -1;
+  setPlayerName: (name) => {
       const clean = sanitizeName(name);
       persistence.setPlayerName(clean);
-      const rank = persistence.addLeaderboardEntry({
-          name: clean,
+      set({ playerName: clean });
+      get().syncLeaderboard(true);
+  },
+
+  // Live leaderboard: upserts this run's entry (keyed by runKey). Cheap to call every frame -
+  // it only writes when something changed, and at most every LEADERBOARD_SYNC_INTERVAL ms
+  // unless forced (game over, save, menu, rename).
+  syncLeaderboard: (force = false) => {
+      const s = get();
+      if (s.phase === 'START' || s.score <= 0) return;
+      const sig = `${s.runKey}|${s.playerName}|${s.score}|${s.day}|${s.totalLogsCollected}|${s.placedStructures.length}`;
+      if (sig === lastLeaderboardSig) return;
+      const now = Date.now();
+      if (!force && now - lastLeaderboardSync < LEADERBOARD_SYNC_INTERVAL) return;
+      lastLeaderboardSync = now;
+      lastLeaderboardSig = sig;
+      const rank = persistence.upsertLeaderboardEntry({
+          id: s.runKey,
+          name: s.playerName,
           score: s.score,
           logs: s.totalLogsCollected,
           structures: s.placedStructures.length,
           day: s.day,
-          date: Date.now()
+          date: now
       });
-      set({ scoreSubmitted: true });
-      return rank;
+      const newRank = rank > 0 ? rank : null;
+      if (newRank !== s.leaderboardRank) set({ leaderboardRank: newRank });
   },
 
   startChompingSession: () => set((state) => {
@@ -1271,5 +1347,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   }),
   removeMob: (id) => set((state) => ({ mobs: state.mobs.filter(m => m.id !== id) })),
 
-  checkCombo: () => set((state) => state)
+  // Ends the combo when the window for the next log has run out (called every frame, not while paused)
+  checkCombo: () => set((state) => {
+      if (!state.combo.active || state.isPaused) return state;
+      if (Date.now() <= getComboDeadline(state.combo)) return state;
+      return { combo: { ...state.combo, active: false, multiplier: 1, logsSinceLastLevel: 0 } };
+  })
 }));

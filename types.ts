@@ -54,6 +54,7 @@ export interface PlacedStructure {
     rotation: [number, number, number]; // Base rotation of the whole structure
     health: number;
     maxHealth: number;
+    points?: number; // Score awarded for building it (taken back if demolished)
 }
 
 export interface ComboState {

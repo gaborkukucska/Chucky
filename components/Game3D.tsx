@@ -109,6 +109,8 @@ const DestructionManager = () => {
         if (s.isPaused) return;
         s.tickDestruction(Math.min(rawDelta, MAX_FRAME_DELTA));
         s.checkPowerups();
+        s.checkCombo();        // Combo expiry lives in the store now (was driven by the HUD)
+        s.syncLeaderboard();   // Throttled: only writes when the run's numbers changed
     });
     return null;
 };
