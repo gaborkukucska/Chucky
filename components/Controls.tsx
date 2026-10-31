@@ -1,5 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useGameStore, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX } from '../store';
+import { useGameStore, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX, THROW_CHARGE_MS, throwLiftForCharge } from '../store';
+import { throwAim } from '../globals';
+
+// Hold to aim (higher the longer you hold), release to throw - touch button and keyboard
+const startThrowAim = () => {
+    throwAim.charging = true;
+    throwAim.startedAt = performance.now();
+};
+const releaseThrow = () => {
+    if (!throwAim.charging) return;
+    throwAim.charging = false;
+    useGameStore.getState().throwLog(throwLiftForCharge(performance.now() - throwAim.startedAt));
+};
+const cancelThrowAim = () => {
+    throwAim.charging = false;
+};
 
 // Global input shared with the Woodchuck frame loop
 // @ts-ignore
@@ -159,25 +174,51 @@ const DiveButton = () => {
 const ThrowButton = () => {
     const isInWater = useGameStore(state => state.isInWater);
     const hasWood = useGameStore(state => state.woodCount >= 1);
-    const throwLog = useGameStore(state => state.throwLog);
-    const [pressed, setPressed] = useState(false);
+    const [aiming, setAiming] = useState(false);
+
+    // Walking into the water mid-aim cancels the throw
+    useEffect(() => {
+        if (isInWater && throwAim.charging) {
+            cancelThrowAim();
+            setAiming(false);
+        }
+    }, [isInWater]);
 
     if (isInWater) return null;
+
+    const press = (e: React.PointerEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        e.currentTarget.setPointerCapture?.(e.pointerId); // Release counts even if the thumb slides off
+        startThrowAim();
+        setAiming(true);
+    };
+    const release = () => {
+        releaseThrow();
+        setAiming(false);
+    };
+    const cancel = () => {
+        cancelThrowAim();
+        setAiming(false);
+    };
 
     return (
         <div className="absolute bottom-10 left-5 z-50 flex flex-col items-center gap-1 pointer-events-none">
             <button
-                className={`w-16 h-16 rounded-full pointer-events-auto touch-none select-none shadow-xl border-2 flex items-center justify-center transition-transform
-                    ${pressed ? 'scale-90 bg-amber-800/80 border-amber-200' : 'bg-amber-700/60 border-white/40'} ${hasWood ? '' : 'opacity-40'}`}
-                onPointerDown={(e) => { e.preventDefault(); setPressed(true); throwLog(); }}
-                onPointerUp={() => setPressed(false)}
-                onPointerLeave={() => setPressed(false)}
-                onPointerCancel={() => setPressed(false)}
+                className={`relative overflow-hidden w-16 h-16 rounded-full pointer-events-auto touch-none select-none shadow-xl border-2 flex items-center justify-center transition-transform
+                    ${aiming ? 'scale-95 bg-amber-800/80 border-amber-200' : 'bg-amber-700/60 border-white/40'} ${hasWood ? '' : 'opacity-40'}`}
+                onPointerDown={press}
+                onPointerUp={release}
+                onPointerCancel={cancel}
                 aria-label="Throw a log"
             >
-                <span className="text-2xl">🪵</span>
+                {/* Fills up while held: how high the throw is aimed */}
+                <span
+                    className="absolute inset-x-0 bottom-0 bg-amber-300/50"
+                    style={{ height: aiming ? '100%' : '0%', transition: aiming ? `height ${THROW_CHARGE_MS}ms linear` : 'none' }}
+                />
+                <span className="relative text-2xl">🪵</span>
             </button>
-            <span className="text-[9px] font-bold text-white/80 uppercase tracking-wider drop-shadow">{hasWood ? 'Throw' : 'No logs'}</span>
+            <span className="text-[9px] font-bold text-white/80 uppercase tracking-wider drop-shadow">{!hasWood ? 'No logs' : aiming ? 'Aim higher…' : 'Hold to aim'}</span>
         </div>
     );
 };
@@ -388,10 +429,10 @@ if (typeof window !== 'undefined') {
                 keyboardState.diveKey = true;
                 setInput({ dive: true });
             } else if (!e.repeat) {
-                useGameStore.getState().throwLog();
+                startThrowAim(); // Throws on release; hold longer to aim higher
             }
         } else if (key === 'f') {
-            if (!e.repeat) useGameStore.getState().throwLog();
+            if (!e.repeat) startThrowAim();
         } else if (key === 'r' || key === 'e' || key === 'q') {
             const s = useGameStore.getState();
             if (s.isPlacementMode) s.rotatePlacement(key === 'q' ? -Math.PI / 4 : Math.PI / 4);
@@ -414,6 +455,9 @@ if (typeof window !== 'undefined') {
         } else if (e.code === 'Space') {
             keyboardState.diveKey = false;
             setInput({ dive: false });
+            releaseThrow();
+        } else if (key === 'f') {
+            releaseThrow();
         }
     });
 
@@ -429,5 +473,6 @@ if (typeof window !== 'undefined') {
         MOVE_KEYS.forEach(k => { keys[k] = false; });
         keyboardState.diveKey = false;
         setInput({ x: 0, y: 0, dive: false });
+        cancelThrowAim();
     });
 }

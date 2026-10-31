@@ -12,7 +12,7 @@ Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you
   - **Magnet**: reach a 3x combo and nearby logs fly to you.
   - **Zoomies**: eat 3 berries to run and swim faster for 20 seconds.
 - **Swimming and diving**: Swim across the river and dive for logs and fruit that have sunk. Keep an eye on the breath bar.
-- **Throwing logs**: On land, throw a log the way Chucky faces. A wolf runs off after 2 hits and a bear after 3. A thrown log can be picked up again, but only gives the wood back.
+- **Throwing logs**: On land, hold the throw button to aim higher and release to throw the way Chucky faces. A dotted line shows the flight path while you aim, and every throw flies a little off the aim. A wolf runs off after 2 hits and a bear after 3. A thrown log can be picked up again, but only gives the wood back.
 - **Day and night**: The sun and moon move across the sky. At night wolves and bears come out.
 - **Four camera views**:
   - **3rd person** chase cam behind Chucky.
@@ -23,6 +23,7 @@ Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you
   A zoom slider on the right edge of the screen moves the camera in and out.
 - **Save and load**: Three save slots on each device, from the in-game menu.
 - **Settings**: Choose Low, Medium or High graphics quality, and switch music, environment sounds (river, wind, birds, crickets) and sound effects on or off separately.
+- **Joint games**: Play together on the same Wi-Fi. One player creates a game and shares a room code (like BARK-27). Everyone races for the same trees, logs and fruit in one shared world. Pick a team colour: your logs hurt rivals but team mates catch them.
 - **Live, shared leaderboard**: Your current run updates the leaderboard as you play. Every device that plays from the same server (your laptop and phones on the same Wi-Fi) shares one board.
 - **Mobile first**: Touch joystick, a dive button for the left thumb and a compact HUD. Keyboard and mouse also work.
 
@@ -72,6 +73,24 @@ The leaderboard is served by the same Vite server that serves the game (`npm sta
 
 If you host only the built `dist/` folder somewhere else, the API isn't there. The game then falls back to a leaderboard on each device, and the leaderboard screen says so (🌐 shared or 📱 this device only).
 
+### Joint games (same Wi-Fi)
+
+1. Start the game on one computer with `npm start` (or `npm run preview`). Everyone opens the **Network** URL it prints, on any phone or laptop on the same Wi-Fi.
+2. One player taps **👥 Play together**, picks a team colour and taps **Create a game**. The room code (e.g. **BARK-27**) shows in the HUD and in ☰ → Players.
+3. The others tap **👥 Play together**, pick a colour, type the code and tap **Join**. Up to 8 players per game; late joiners get the world as it is now.
+
+**What's shared, and the rules:**
+- **Shared:** everyone plays in the same world: the same trees, tree damage, felled trees, loose logs and fruit, structures, and day and night.
+- **Racing for resources:** the first player to reach a log or a piece of fruit gets it.
+- **Teams:** pick Red, Blue, Green or Yellow; the same colour means team mates. **Solo** means everyone is your rival. Each Chucky wears a scarf in their team colour, with a name tag over their head.
+- **Throwing:** a thrown log 🪵 hurts other players (20 damage and a knock-back). A team mate catches it instead and gets the wood.
+- **Knock-outs:** at zero health you're knocked out. You drop half your logs for others to grab, and you're back at the river bank 5 seconds later with your score kept.
+- **Structures:** you can demolish your own and your team's, but not a rival's. Demolishing a team mate's structure doesn't cost you points.
+- **No pausing or saving:** the game never pauses, because the world goes on for everyone, and joint games can't be saved.
+- **Wolves and bears:** each player has their own.
+
+The game server runs inside the same Vite server (WebSocket at `/ws/chucky`, via the `ws` package that `npm install` adds). If the connection drops, the game says so and you can rejoin with the same code.
+
 ## 📱 Mobile / Termux Troubleshooting
 
 If you run the server directly on your phone with Termux:
@@ -106,12 +125,12 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 |---|---|
 | **Joystick** (bottom middle) | **3rd person view:** up/down walks forward/back, left/right turns Chucky (the camera stays behind him). **Other views:** push where you want to go on the screen. |
 | **🤿 Dive** (bottom left, in water) | Hold to dive, release to float back up. Watch the breath bar. |
-| **🪵 Throw** (bottom left, on land) | Throw a log the way Chucky faces. Costs 1 log; you can throw about every 0.6 seconds. |
+| **🪵 Throw** (bottom left, on land) | **Hold** to aim: the longer you hold, the higher and further the throw (a quick tap is a flat ~20 m throw; 1 second is a ~50 m lob). A dotted line and a ring show where it will land. **Release** to throw. Costs 1 log; you can throw about every 0.6 seconds. Each throw flies a little off the aim. |
 | **Zoom slider** (right edge) | Slide up to move the camera closer, down to move it further away. Double-tap the slider to reset. |
 | **🏗️ / ✅ / 💥** (top right) | Opens the build menu. Becomes ✅ to **place** while building. Next to a structure it becomes 💥: **hold** it to demolish (you get 80% of the logs back). |
 | **✖️** | Stop building. |
 | **📷** | Switch the camera: 3rd person → Overview → Top-down → Cinematic. |
-| **☰** | Menu: Resume, Save, Load, Leaderboard, Settings, New game. Opening it pauses the game. |
+| **☰** | Menu: Resume, Save, Load, Leaderboard, Settings, New game. Opening it pauses the game. In a joint game: Resume, Players, Leaderboard, Settings, Leave game (it doesn't pause). |
 | **Building controls** (left edge, while building) | ↻ / ↺ rotate the structure, **✅ PLACE** places it (green = OK, grey = not possible here), ✖ stops building. The label above shows the blueprint, its cost and why a spot isn't allowed. |
 
 ### Keyboard & mouse
@@ -119,8 +138,8 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | Key | What it does |
 |---|---|
 | **W A S D** / **arrow keys** | Move (in 3rd person: W/S forward/back, A/D turn) |
-| **Space** | In the water: hold to dive. On land: throw a log |
-| **F** | Throw a log |
+| **Space** | In the water: hold to dive. On land: hold to aim a throw, release to throw |
+| **F** | Hold to aim a throw, release to throw |
 | **Mouse wheel** | Zoom the camera |
 | **R** or **E** / **Q** | Rotate the structure while building (Q turns the other way) |
 | **Enter** | Place the structure |
@@ -150,6 +169,9 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | `services/audio.ts` | Synthesized sound (no audio files) on three channels that can be muted separately: music, environment and sound effects. |
 | `services/persistence.ts` | localStorage saves (3 slots), player name, camera zoom, graphics quality, sound settings, and the leaderboard client (shared API with a fallback to each device). |
 | `server/leaderboardApi.ts` | Vite plugin: `GET` and `POST /api/leaderboard`, stored in `data/leaderboard.json`. |
+| `server/multiplayerServer.ts` | Vite plugin: the joint-game WebSocket server at `/ws/chucky`. It handles rooms and codes, and keeps each room's shared world (seed, trees, logs, fruit, structures, clock). |
+| `services/multiplayer.ts` | Joint-game client: connect, create and join, send our updates, and apply everyone else's to the store. Also has team colours and `canDemolish`. |
+| `components/RemotePlayers.tsx` | The other players' Chuckies (smoothed movement, team scarf, name tag) and the per-frame network sync. |
 | `globals.ts` | Shared mutable values read every frame without causing re-renders: player position and facing, live log and fruit positions (used by saves). |
 
 ### Key design decisions
@@ -189,12 +211,22 @@ Phones and tablets start on Medium and computers on High, until the player picks
 
 All sound is synthesized in `services/audio.ts` and mixed on three channels: **music**, **environment** and **sfx**. A muted channel stops scheduling sounds, so it costs nothing. The environment channel plays a river (louder near the water, muffled under it), wind, birds by day and crickets at night; `AmbientAudioManager` in `Game3D.tsx` updates it four times a second. Audio pauses while the tab or app is in the background.
 
+### Joint games architecture
+
+- **Shared world from a seed.** The server keeps the room's world seed and what changed since. A joining client runs `startGame(seed)` and then applies a snapshot.
+- **Physics runs on every device.** The player who created a log (by felling, throwing, demolishing or being knocked out) is its *owner* and sends its position four times a second. Other devices snap a log back if it's more than 0.75 m off. A dropped log's launch velocity is part of its data, so it flies the same way everywhere.
+- **First come, first served.** Picking up a log or fruit, or catching a team mate's throw, asks the server first (`take`). Only the first request is granted. A tree is felled by the first `fell` message; a later one is rejected, and that client removes the logs it spawned.
+- **The victim decides hits.** Each device checks thrown logs from other players against its own Chucky, using the same swept hit test as for animals, and reports `hit`. This keeps hits fair on the screen of the player being hit.
+- **Smoothed movement.** Other players send their position 10 times a second, and they're drawn 120 ms in the past so movement between updates is smooth. That data never goes through React; only joins, leaves, scores and knock-outs update the store.
+- **Day and night stay in step.** The room's host sends the clock every 5 s, and clients correct any drift. If the host leaves, another player takes over.
+
 ### Useful tuning knobs
 
 - `store.ts` (top): tree and boulder counts, food drop chance, power-up durations, combo windows, unlock thresholds, build points, debris limits, leaderboard sync interval.
 - `Woodchuck.tsx` (top): walk and swim speed, acceleration, turn and steer rates, diving and breath, chomp damage and reach, placement spacing.
 - `Game3D.tsx`: `QUALITY_SETTINGS` and `GRASS_QUALITY` (what each graphics setting does), `GRASS_TILE`, and the camera constants (`CHASE`, `OVERVIEW`, `TOP_DOWN_VIEW`, `CINEMATIC_VIEW`).
 - `services/audio.ts` (top): river, wind and underwater sound levels.
+- `store.ts` and `server/multiplayerServer.ts`: knock-out time, throw damage and knock-back, players per room, how long empty rooms are kept.
 
 ### Checking your changes
 

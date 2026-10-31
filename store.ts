@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import * as THREE from 'three';
 import { GamePhase, CameraMode, GraphicsQuality, TreeData, LogData, LooseLogData, BoulderData, Blueprint, PlacedStructure, ComboState, Notification, MobData, FoodData } from './types';
 import { audioService, AudioChannel, AudioSettings } from './services/audio';
+import { multiplayer, canDemolish, MP_OFF, MpState } from './services/multiplayer';
 import { persistence, SaveData, SAVE_VERSION, sanitizeName } from './services/persistence';
 import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, readBodyTransform } from './globals';
 
@@ -58,9 +59,48 @@ const MAX_DESTROY_SECONDS = 8;
 // log up again can't be farmed.
 export const THROW_COOLDOWN_MS = 600;
 const THROW_SPEED = 38;      // m/s forwards
-const THROW_LIFT = 7;        // m/s upwards - lands ~30 m out on flat ground (gravity is 20 m/s²)
+export const THROW_CHARGE_MS = 1000; // Hold the throw button this long to aim as high as it goes
+const THROW_LIFT_MIN = 5;    // m/s upwards for a quick tap - lands ~20 m out on flat ground
+const THROW_LIFT_MAX = 16;   // m/s upwards fully charged - a lob that lands ~50 m out (gravity is 20 m/s²)
+// Every throw flies a little off the aim, so no two follow exactly the same path
+const THROW_SCATTER_LIFT = 1.2;   // ± m/s higher / lower
+const THROW_SCATTER_YAW = 0.05;   // ± rad (~3°) left / right
+const THROW_SCATTER_SPEED = 0.06; // ± fraction longer / shorter
 const THROW_SPAWN_AHEAD = 1.2;
+const THROW_SPAWN_UP = 0.5;
+
+/** Upward launch speed for a throw button held this long */
+export const throwLiftForCharge = (heldMs: number) =>
+    THROW_LIFT_MIN + (THROW_LIFT_MAX - THROW_LIFT_MIN) * Math.max(0, Math.min(1, heldMs / THROW_CHARGE_MS));
+
+/** Where a throw starts and how fast it goes. scatter = false: the exact aim (trajectory guide) */
+export const throwLaunch = (lift: number, scatter: boolean) => {
+    const jitter = (amount: number) => (scatter ? (Math.random() * 2 - 1) * amount : 0);
+    const aim = playerState.facing;
+    const facing = aim + jitter(THROW_SCATTER_YAW);
+    const speed = THROW_SPEED * (1 + jitter(THROW_SCATTER_SPEED));
+    const p = currentWoodchuckPos;
+    return {
+        facing,
+        position: [p.x + Math.sin(aim) * THROW_SPAWN_AHEAD, p.y + THROW_SPAWN_UP, p.z + Math.cos(aim) * THROW_SPAWN_AHEAD] as Vec3,
+        velocity: [Math.sin(facing) * speed, Math.max(1, lift + jitter(THROW_SCATTER_LIFT)), Math.cos(facing) * speed] as Vec3,
+    };
+};
 const MOB_DEFEAT_POINTS = { wolf: 20, bear: 40 };
+
+// Joint games
+const KO_DURATION_MS = 5000;        // Knocked out this long, then back at the river bank
+const KO_DROP_PIECES = 4;           // Half your logs drop as up to this many bundles
+const THROW_PLAYER_DAMAGE = 20;
+const THROW_PLAYER_KNOCKBACK = 9;   // m/s added to the victim's speed
+
+// Random "pop" for a log that's dropped (felled tree, debris, knock-out drop). Part of the log's
+// data so every player in a joint game sees it fly the same way.
+const popVelocity = (): Vec3 => {
+    const angle = Math.random() * Math.PI * 2;
+    const force = 10 + Math.random() * 8;
+    return [round3(Math.cos(angle) * force), round3(8 + Math.random() * 6), round3(Math.sin(angle) * force)];
+};
 
 // Camera zoom multiplier (right-hand slider / mouse wheel); saved per device
 export const CAMERA_ZOOM_MIN = 0.45;
@@ -91,6 +131,9 @@ interface GameState {
   quality: GraphicsQuality;
   audioSettings: AudioSettings;
   lastThrowTime: number;
+  mp: MpState;                   // Joint game: status, room code, players, feed (services/multiplayer.ts)
+  koUntil: number;               // Joint games: knocked out until this time (0 = not)
+  lastHitBy: string;             // Joint games: who threw the last log that hit us
   woodCount: number;
   score: number;
   totalLogsCollected: number;
@@ -179,7 +222,7 @@ interface GameState {
   placeLog: (position: Vec3, rotation: Vec3) => void;
   damageTree: (id: string, amount: number) => void;
   setActiveTree: (id: string | null) => void;
-  collectLooseLog: (id: string) => void;
+  collectLooseLog: (id: string, granted?: boolean) => void;
   collectLog: (id: string) => void;
   collectFood: (id: string) => void;
   expireLooseLog: (id: string) => void;
@@ -220,7 +263,9 @@ interface GameState {
   setCameraZoom: (zoom: number) => void;
   setQuality: (quality: GraphicsQuality) => void;
   setAudioChannel: (channel: AudioChannel, enabled: boolean) => void;
-  throwLog: () => boolean;
+  throwLog: (lift?: number) => boolean;
+  takeThrowHit: (by: string, dirX: number, dirZ: number) => void;
+  mpRespawn: () => void;
   defeatMob: (id: string) => void;
 }
 
@@ -418,6 +463,7 @@ const generateWorld = (seed: number) => {
 // time-based timer (combo, powerups) so paused time is not "lost".
 // =====================================================================
 const pauseFields = (state: GameState): Partial<GameState> =>
+    state.mp.status === 'playing' ? {} : // Joint games never pause: the world goes on for everyone
     state.isPaused ? { isPaused: true } : { isPaused: true, lastPauseStartTime: Date.now() };
 
 const resumeFields = (state: GameState): Partial<GameState> => {
@@ -622,6 +668,9 @@ export const useGameStore = create<GameState>((set, get) => ({
   quality: persistence.getQuality() ?? defaultQuality(),
   audioSettings: persistence.getAudioSettings(),
   lastThrowTime: 0,
+  mp: MP_OFF,
+  koUntil: 0,
+  lastHitBy: '',
   isPlacementMode: false,
   isBuildMenuOpen: false,
   selectedBlueprintId: null,
@@ -680,6 +729,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           phase: 'PLAYING',
           runId: state.runId + 1,
           runKey: newRunKey(),
+          koUntil: 0,
+          lastHitBy: '',
           leaderboardRank: null,
           spawnPoint: null,
           spawnFacing: Math.PI / 2,
@@ -757,29 +808,50 @@ export const useGameStore = create<GameState>((set, get) => ({
       audioService.setChannelEnabled(channel, enabled);
   },
 
-  // Throw one log the way Chucky faces (on land). Returns false if it can't be thrown now.
-  throwLog: () => {
+  // Throw one log the way Chucky faces (on land), aimed up by `lift` (see throwLiftForCharge).
+  // Returns false if it can't be thrown now.
+  throwLog: (lift = THROW_LIFT_MIN) => {
       const s = get();
       const now = Date.now();
       if (s.phase !== 'PLAYING' || s.isPaused || s.isGameMenuOpen || s.isBuildMenuOpen) return false;
-      if (s.isInWater || s.woodCount < 1 || now - s.lastThrowTime < THROW_COOLDOWN_MS) return false;
-      const facing = playerState.facing;
-      const sin = Math.sin(facing);
-      const cos = Math.cos(facing);
-      const p = currentWoodchuckPos;
+      if (s.isInWater || s.woodCount < 1 || now - s.lastThrowTime < THROW_COOLDOWN_MS || s.koUntil > 0) return false;
+      const launch = throwLaunch(lift, true);
       const log: LooseLogData = {
           id: `throw-${now}-${Math.floor(Math.random() * 1e6)}`,
-          position: roundVec([p.x + sin * THROW_SPAWN_AHEAD, p.y + 0.5, p.z + cos * THROW_SPAWN_AHEAD]),
-          rotation: [0, round3(facing), round3(Math.PI / 2)], // Crosswise, like a thrown stick
+          position: roundVec(launch.position),
+          rotation: [0, round3(launch.facing), round3(Math.PI / 2)], // Crosswise, like a thrown stick
           createdAt: now,
-          velocity: [round3(sin * THROW_SPEED), THROW_LIFT, round3(cos * THROW_SPEED)],
+          velocity: roundVec(launch.velocity),
           thrown: true,
           value: 1,
+          ...(s.mp.status === 'playing' ? { owner: s.mp.myId, thrownBy: s.mp.myId, team: s.mp.team } : {}),
       };
       set({ woodCount: s.woodCount - 1, lastThrowTime: now, looseLogs: [...s.looseLogs, log] });
+      multiplayer.sendLogs([log]);
       audioService.playThrow();
       return true;
   },
+
+  // Joint games: another player's thrown log hit us
+  takeThrowHit: (by, dirX, dirZ) => {
+      const s = get();
+      if (s.phase !== 'PLAYING' || s.koUntil > 0) return;
+      playerState.impulseX += dirX * THROW_PLAYER_KNOCKBACK;
+      playerState.impulseZ += dirZ * THROW_PLAYER_KNOCKBACK;
+      set({ lastHitBy: by });
+      multiplayer.sendHit(by);
+      get().takeDamage(THROW_PLAYER_DAMAGE);
+  },
+
+  // Joint games: back on your feet at the river bank after a knock-out (score and the
+  // logs you kept stay)
+  mpRespawn: () => set((state) => ({
+      koUntil: 0,
+      health: state.maxHealth,
+      spawnPoint: null,
+      runId: state.runId + 1,
+      lastHitBy: '',
+  })),
 
   // A wolf/bear took enough log hits: it runs off
   defeatMob: (id) => set((state) => {
@@ -815,13 +887,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       return { notification: null, ...resumeFields(state) };
   }),
 
-  collectLooseLog: (id: string) => set((state) => {
+  // granted: a joint game's server already gave it to us (also catches in flight)
+  collectLooseLog: (id: string, granted = false) => set((state) => {
       const log = state.looseLogs.find(l => l.id === id);
       if (!log) return state;
       // Invulnerability (0.5s)
-      if (Date.now() - log.createdAt < 500) return state;
-      if (log.thrown) {
-          // A thrown log only gives the wood back: no score, combo or log count (no farming)
+      if (!granted && Date.now() - log.createdAt < 500) return state;
+      if (log.thrown || log.woodOnly) {
+          // A thrown log / knock-out drop only gives the wood: no score, combo or log count (no farming)
           audioService.playSuccess();
           return {
               woodCount: state.woodCount + (log.value ?? 1),
@@ -872,6 +945,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const isFelled = newHealth === 0;
 
     if (!isFelled) {
+        multiplayer.reportTreeHealth(id, newHealth);
         return {
           activeTreeId: id,
           trees: state.trees.map(t => t.id === id ? { ...t, health: newHealth } : t)
@@ -897,7 +971,9 @@ export const useGameStore = create<GameState>((set, get) => ({
             id: `loose-${id}-${now}-${i}`,
             position: [lx, lh + 3.0, lz],
             rotation: [Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI],
-            createdAt: now + (i * 100) // Slight stagger in creation time
+            createdAt: now + (i * 100), // Slight stagger in creation time
+            velocity: popVelocity(),
+            ...(state.mp.status === 'playing' ? { owner: state.mp.myId } : {})
         });
     }
 
@@ -943,6 +1019,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
     }
 
+    multiplayer.sendFell(id, newLooseLogs, newFood);
+
     return {
       activeTreeId: null,
       trees: state.trees.map(t => t.id === id ? { ...t, health: 0, isFelled: true } : t),
@@ -967,7 +1045,41 @@ export const useGameStore = create<GameState>((set, get) => ({
   takeDamage: (amount) => {
       const before = get();
       if (before.phase !== 'PLAYING') return;
+      if (before.koUntil > 0) return; // Already knocked out
       const newHealth = Math.max(0, before.health - amount);
+      if (newHealth === 0 && before.mp.status === 'playing') {
+          // Joint game: knocked out - drop half your logs for others, back in a few seconds
+          const now = Date.now();
+          const dropped = Math.floor(before.woodCount / 2);
+          const pieces = Math.min(KO_DROP_PIECES, dropped);
+          const p = currentWoodchuckPos;
+          const drops: LooseLogData[] = [];
+          for (let i = 0; i < pieces; i++) {
+              drops.push({
+                  id: `ko-${before.mp.myId}-${now}-${i}`,
+                  position: roundVec([p.x + (Math.random() - 0.5), p.y + 1.5, p.z + (Math.random() - 0.5)]),
+                  rotation: [0, round3(Math.random() * Math.PI), round3(Math.PI / 2)],
+                  createdAt: now,
+                  value: Math.floor(dropped / pieces) + (i < dropped % pieces ? 1 : 0),
+                  velocity: popVelocity(),
+                  woodOnly: true,
+                  owner: before.mp.myId,
+              });
+          }
+          set({
+              health: 0,
+              koUntil: now + KO_DURATION_MS,
+              woodCount: before.woodCount - dropped,
+              looseLogs: [...before.looseLogs, ...drops],
+              isPlacementMode: false,
+              isDestroying: false,
+              combo: { ...before.combo, active: false, multiplier: 1 },
+          });
+          multiplayer.sendLogs(drops);
+          multiplayer.sendKnockout(before.lastHitBy);
+          audioService.playChomp();
+          return;
+      }
       if (newHealth === 0) {
           set({ health: 0, phase: 'GAMEOVER', isPaused: true, isGameMenuOpen: false, isBuildMenuOpen: false, isPlacementMode: false, isDestroying: false });
           get().syncLeaderboard(true); // Final score
@@ -1093,10 +1205,12 @@ export const useGameStore = create<GameState>((set, get) => ({
           rotation: rotation ?? state.placementRotation,
           health: blueprint.cost * 10, // Arbitrary health based on cost
           maxHealth: blueprint.cost * 10,
-          points
+          points,
+          ...(state.mp.status === 'playing' ? { ownerId: state.mp.myId, team: state.mp.team } : {})
       };
 
       audioService.playSplash(); // Sound effect for placement
+      multiplayer.sendPlace(newStructure);
 
       const woodLeft = state.woodCount - blueprint.cost;
       const keepPlacing = woodLeft >= blueprint.cost;
@@ -1126,7 +1240,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (!state.isDestroying || !state.destroyTargetId) return state;
 
       const structure = state.placedStructures.find(s => s.id === state.destroyTargetId);
-      if (!structure) return { isDestroying: false, destroyTargetId: null };
+      if (!structure || !canDemolish(structure)) return { isDestroying: false, destroyTargetId: null };
 
       const destroyBlueprint = state.blueprints.find(b => b.id === structure.blueprintId);
       const destroySeconds = Math.min(MAX_DESTROY_SECONDS, 1.5 + (destroyBlueprint ? destroyBlueprint.cost : 10) / 250);
@@ -1161,15 +1275,20 @@ export const useGameStore = create<GameState>((set, get) => ({
                   position: [lx, Math.max(lh, WATER_LEVEL) + 3 + Math.random() * 3, lz], // Drop from height
                   rotation: [Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI],
                   createdAt: now + (i * DEBRIS_STAGGER_MS),
-                  value
+                  value,
+                  velocity: popVelocity(),
+                  ...(state.mp.status === 'playing' ? { owner: state.mp.myId } : {})
               });
           }
+          multiplayer.sendDemolish(structure.id, newLooseLogs);
+          // Build points are only taken back from the player who got them
+          const mine = !structure.ownerId || structure.ownerId === state.mp.myId;
 
           return {
               placedStructures: state.placedStructures.filter(s => s.id !== state.destroyTargetId),
               looseLogs: [...state.looseLogs, ...newLooseLogs],
               // Demolishing returns 80% of the logs but takes back the build points
-              score: Math.max(0, state.score - (structure.points ?? 0)),
+              score: Math.max(0, state.score - (mine ? (structure.points ?? 0) : 0)),
               isDestroying: false,
               destroyTargetId: null
           };
@@ -1220,6 +1339,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   saveGame: (slot) => {
       const s = get();
       if (s.phase !== 'PLAYING') return { ok: false, message: 'Start a game before saving.' };
+      if (s.mp.status === 'playing') return { ok: false, message: 'Joint games can\'t be saved - the world belongs to everyone.' };
       if (!persistence.isAvailable()) return { ok: false, message: 'Saving is not available in this browser (private mode?).' };
 
       // Timers are frozen while paused (the menu is open), so measure from the pause start
@@ -1283,6 +1403,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   loadGame: (slot) => {
+      if (get().mp.status === 'playing') return { ok: false, message: 'Leave the joint game first.' };
       const data = persistence.readSlot(slot);
       if (!data) return { ok: false, message: `Slot ${slot} is empty or from an older version.` };
 

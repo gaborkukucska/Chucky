@@ -25,7 +25,16 @@ export const readBodyTransform = (obj: THREE.Object3D, pos: THREE.Vector3, quat:
     }
 };
 
+// Aiming a throw: held since startedAt (performance.now()); read by the trajectory guide
+export const throwAim = {
+    charging: false,
+    startedAt: 0,
+};
+
 // Per-frame player state that must not live in the store
 export const playerState = {
     facing: Math.PI / 2,
+    // Knock-back from a thrown log (joint games), added to Chucky's velocity next frame
+    impulseX: 0,
+    impulseZ: 0,
 };

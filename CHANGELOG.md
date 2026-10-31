@@ -2,9 +2,60 @@
 
 All notable changes to Woodchuck Dam Builder 3000 (*Chucky*). Newest first.
 
-## 2026-10-31: Regression fixes and new features (rounds 1–9)
+## 2026-10-31: Regression fixes and new features (rounds 1–11)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 11: Aimed throws
+
+**Hold to aim.** Hold 🪵 (or Space/F on land) to aim, then release to throw. The longer you hold, the higher the throw:
+- a quick tap is a flat throw of about 20 m
+- a full 1-second charge is a lob of about 50 m
+
+The button fills up while you hold it. Walking into the water while aiming cancels the throw.
+
+**Throw guide.** While you aim, a dotted line shows the flight path and a ring marks where the log will land. It uses the same gravity, air drag and time step as the physics engine.
+
+**Scatter.** Every throw flies a little off the aim: up to ±1.2 m/s high or low, ±3° left or right, and ±6% long or short. No two throws follow exactly the same path. Other players see the real path in joint games.
+
+Files: `globals.ts`, `store.ts`, `components/Controls.tsx`, `components/Game3D.tsx`, `README.md`, `CHANGELOG.md`.
+
+### Round 10: Joint games (multiplayer on the same Wi-Fi)
+
+**Lobby.** On the start screen, **👥 Play together** lets you enter your name and pick a team (Red, Blue, Green, Yellow or Solo). From there you can **Create a game**, which gives a code like BARK-27, or **Join** with a code. Up to 8 players per game.
+
+**One shared world per room.**
+- **Same world:** everyone gets the same world from the room's seed.
+- **Shared changes:** tree damage, felled trees, loose logs, fruit, structures and the day/night clock are the same for everyone.
+- **Racing:** whoever reaches a log or a piece of fruit first gets it.
+- **Late joiners** get the world as it is now.
+
+**Players.**
+- **Look:** other players' Chuckies wear a team-coloured scarf, have a name tag, and move smoothly. Their swimming, diving, chomping and knock-out poses are shown too, and your own Chucky wears your team colour.
+- **HUD:** shows the room code and how many players are in the game.
+- **Feed:** a short feed shows joins, leaves, bonks, catches and knock-outs.
+
+**Throwing at players.** A thrown log hits rivals for 20 damage plus a knock-back. A team mate catches it instead and gets the wood. Hits are decided on the screen of the player being hit.
+
+**Knock-outs.** You drop half your logs as bundles for others to grab, and they give wood only, so they can't be farmed for score. You lie still for 5 seconds, then get up at the river bank with your score kept. You can't throw or chomp while knocked out.
+
+**Structures.** Each structure records who built it and their team. You can demolish your own and your team's, but not a rival's, and you only lose points for your own.
+
+**Other joint-game rules.**
+- **No pausing:** menus don't pause the game, because the world goes on for everyone.
+- **No save or load:** saving and loading are off.
+- **Menu:** shows Players, Leaderboard, Settings and **Leave game**.
+- **Lost connection:** the game says so and you can rejoin with the same code.
+- **Wolves and bears:** each player has their own.
+
+**Server.** `server/multiplayerServer.ts` runs inside the Vite dev/preview server (WebSocket `/ws/chucky`) and adds the `ws` package (`npm install`).
+- **Validation:** every message is checked: sizes, numbers, ids and names.
+- **Cleanup:** empty rooms are forgotten after 10 minutes.
+- **First come, first served:** it decides who gets a log, a piece of fruit or a tree first.
+
+**Smaller changes.** Logs dropped by felling or demolishing now carry their launch velocity in their data, so every player sees them fly the same way.
+
+Files: `server/multiplayerServer.ts`, `services/multiplayer.ts` and `components/RemotePlayers.tsx` (new), plus `package.json`, `vite.config.ts`, `types.ts`, `globals.ts`, `store.ts`, `App.tsx`, `components/Game3D.tsx`, `components/Woodchuck.tsx`, `components/WorldObjects.tsx`, `README.md`, `CHANGELOG.md`.
 
 ### Round 9: Throwing logs
 

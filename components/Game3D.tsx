@@ -3,14 +3,16 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Physics, useSphere } from '@react-three/cannon';
 import { Sky, Stars, Cloud, Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
-import { useGameStore, calculateTerrainHeight, isNightTime, MAP_SIZE, getRiverX, getRiverWidth } from '../store';
+import { useGameStore, calculateTerrainHeight, isNightTime, MAP_SIZE, getRiverX, getRiverWidth, throwLaunch, throwLiftForCharge } from '../store';
 import { audioService } from '../services/audio';
 import { Terrain } from './Terrain';
 import { Water } from './Water';
 import { Boulder, Tree, Log, LooseLog, PlacedStructureRenderer } from './WorldObjects';
 import { Woodchuck } from './Woodchuck';
+import { RemotePlayers, MultiplayerSync } from './RemotePlayers';
+import { multiplayer } from '../services/multiplayer';
 import { FoodData, MobData, GraphicsQuality } from '../types';
-import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition } from '../globals';
+import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, throwAim } from '../globals';
 
 const WATER_LEVEL = -1.5;
 const MAX_FRAME_DELTA = 0.1;
@@ -343,7 +345,9 @@ const Food = React.memo(({ data }: { data: FoodData }) => {
     const collect = () => {
         if (collectedRef.current) return;
         collectedRef.current = true;
-        useGameStore.getState().collectFood(data.id);
+        // Joint games: ask the server first (the first player to reach it gets it)
+        if (multiplayer.active) multiplayer.take('food', data.id);
+        else useGameStore.getState().collectFood(data.id);
     };
 
     const [ref] = useSphere(() => ({
@@ -681,6 +685,93 @@ const Grass = ({ quality }: { quality: GraphicsQuality }) => {
 };
 
 // =====================================================================
+// Throw guide: while aiming, dots along the flight path and a ring where it lands.
+// Same gravity, air drag and step as the physics (cannon: drag, then gravity, then move),
+// so it matches the real throw before its random scatter.
+// =====================================================================
+const AIM_DOTS = 28;
+const AIM_STEP = 1 / 60;        // Physics step
+const AIM_GRAVITY = 20;         // <Physics gravity>
+const AIM_DRAG = 0.1;           // Loose log linearDamping in the air
+const AIM_MAX_TIME = 3;         // s
+
+const ThrowAimGuide = () => {
+    const dotsRef = useRef<THREE.InstancedMesh>(null);
+    const ringRef = useRef<THREE.Mesh>(null);
+    const path = useMemo(() => new Float32Array((Math.ceil(AIM_MAX_TIME / AIM_STEP) + 2) * 3), []);
+    const dummy = useMemo(() => new THREE.Object3D(), []);
+
+    useFrame(() => {
+        const dots = dotsRef.current;
+        const ring = ringRef.current;
+        if (!dots || !ring) return;
+        const s = useGameStore.getState();
+        const show = throwAim.charging && s.phase === 'PLAYING' && !s.isInWater && s.koUntil === 0 && s.woodCount >= 1;
+        dots.visible = show;
+        ring.visible = false;
+        if (!show) return;
+
+        const launch = throwLaunch(throwLiftForCharge(performance.now() - throwAim.startedAt), false);
+        let [x, y, z] = launch.position;
+        let [vx, vy, vz] = launch.velocity;
+        const drag = Math.pow(1 - AIM_DRAG, AIM_STEP);
+        path[0] = x;
+        path[1] = y;
+        path[2] = z;
+        let n = 1;
+        let landed = false;
+        const steps = Math.ceil(AIM_MAX_TIME / AIM_STEP);
+        for (let i = 0; i < steps; i++) {
+            vx *= drag;
+            vy *= drag;
+            vz *= drag;
+            vy -= AIM_GRAVITY * AIM_STEP;
+            x += vx * AIM_STEP;
+            y += vy * AIM_STEP;
+            z += vz * AIM_STEP;
+            const ground = Math.max(calculateTerrainHeight(x, z), WATER_LEVEL);
+            path[n * 3] = x;
+            path[n * 3 + 1] = Math.max(y, ground);
+            path[n * 3 + 2] = z;
+            n++;
+            if (y <= ground) {
+                landed = true;
+                break;
+            }
+        }
+
+        // Evenly spaced dots, shrinking towards the far end
+        for (let d = 0; d < AIM_DOTS; d++) {
+            const i = Math.round(((d + 1) / AIM_DOTS) * (n - 1));
+            dummy.position.set(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]);
+            dummy.scale.setScalar(1 - (d / AIM_DOTS) * 0.4);
+            dummy.updateMatrix();
+            dots.setMatrixAt(d, dummy.matrix);
+        }
+        dots.instanceMatrix.needsUpdate = true;
+
+        if (landed) {
+            const last = (n - 1) * 3;
+            ring.position.set(path[last], path[last + 1] + 0.06, path[last + 2]);
+            ring.visible = true;
+        }
+    });
+
+    return (
+        <>
+            <instancedMesh ref={dotsRef} args={[undefined, undefined, AIM_DOTS]} frustumCulled={false} visible={false} renderOrder={15}>
+                <sphereGeometry args={[0.14, 8, 6]} />
+                <meshBasicMaterial color="#FFF3C4" transparent opacity={0.9} depthWrite={false} />
+            </instancedMesh>
+            <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]} visible={false} renderOrder={15}>
+                <ringGeometry args={[0.6, 0.95, 24]} />
+                <meshBasicMaterial color="#FFB300" transparent opacity={0.85} side={THREE.DoubleSide} depthWrite={false} />
+            </mesh>
+        </>
+    );
+};
+
+// =====================================================================
 // Environment sounds: tell the audio service how close the river is, day/night, underwater
 // =====================================================================
 const AMBIENT_UPDATE_INTERVAL = 0.25; // s
@@ -741,6 +832,7 @@ const GameScene = () => {
                 <TimeManager />
                 <DestructionManager />
                 <AmbientAudioManager />
+                <MultiplayerSync />
                 <DayNightCycle shadowMapSize={qualitySettings.shadowMap} />
 
                 {qualitySettings.clouds && (
@@ -771,6 +863,8 @@ const GameScene = () => {
                 </Physics>
 
                 <Grass key={quality} quality={quality} />
+                <RemotePlayers />
+                <ThrowAimGuide />
                 <CameraController />
 
                 {/* Effects */}
