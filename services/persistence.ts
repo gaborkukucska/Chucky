@@ -39,7 +39,7 @@ export interface SaveData {
     trees: [number, 0 | 1][];          // [health, isFelled] - index-aligned with the seeded world
     unlockedBlueprints: boolean[];      // index-aligned with the seeded blueprints
     placedStructures: PlacedStructure[];
-    looseLogs: { position: Vec3; rotation: Vec3; age: number; value?: number }[];
+    looseLogs: { position: Vec3; rotation: Vec3; age: number; value?: number; thrown?: boolean }[];
     food: { position: Vec3; type: 'apple' | 'berry' }[];
     player: { position: Vec3; facing: number };
     powerups: { treeMs: number; logMs: number; speedMs: number };

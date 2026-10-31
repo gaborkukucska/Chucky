@@ -256,6 +256,47 @@ class AudioService {
         });
     }
 
+    /** Whoosh of a thrown log */
+    public playThrow() {
+        if (!this.sfxReady()) return;
+        const ctx = this.ctx!;
+        const buffer = this.getNoiseBuffer();
+        if (!buffer) return;
+        const now = ctx.currentTime;
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.Q.value = 1.2;
+        filter.frequency.setValueAtTime(1400, now);
+        filter.frequency.exponentialRampToValueAtTime(350, now + 0.25);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.6, now + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+        source.connect(filter).connect(gain).connect(this.buses.sfx!);
+        source.start(now, Math.random() * 1.5);
+        source.stop(now + 0.3);
+    }
+
+    /** Thud of a thrown log hitting something */
+    public playHit() {
+        if (!this.sfxReady()) return;
+        const ctx = this.ctx!;
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(45, now + 0.15);
+        gain.gain.setValueAtTime(0.45, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+        osc.connect(gain);
+        gain.connect(this.buses.sfx!);
+        osc.start(now);
+        osc.stop(now + 0.2);
+    }
+
     // ------------------------------------------------------------------
     // Music - minimalist bit-jazz loop (walking bass, chords, swing)
     // ------------------------------------------------------------------

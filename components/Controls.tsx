@@ -154,6 +154,35 @@ const DiveButton = () => {
 };
 
 // =====================================================================
+// Throw button - on land, in the dive button's spot (left thumb)
+// =====================================================================
+const ThrowButton = () => {
+    const isInWater = useGameStore(state => state.isInWater);
+    const hasWood = useGameStore(state => state.woodCount >= 1);
+    const throwLog = useGameStore(state => state.throwLog);
+    const [pressed, setPressed] = useState(false);
+
+    if (isInWater) return null;
+
+    return (
+        <div className="absolute bottom-10 left-5 z-50 flex flex-col items-center gap-1 pointer-events-none">
+            <button
+                className={`w-16 h-16 rounded-full pointer-events-auto touch-none select-none shadow-xl border-2 flex items-center justify-center transition-transform
+                    ${pressed ? 'scale-90 bg-amber-800/80 border-amber-200' : 'bg-amber-700/60 border-white/40'} ${hasWood ? '' : 'opacity-40'}`}
+                onPointerDown={(e) => { e.preventDefault(); setPressed(true); throwLog(); }}
+                onPointerUp={() => setPressed(false)}
+                onPointerLeave={() => setPressed(false)}
+                onPointerCancel={() => setPressed(false)}
+                aria-label="Throw a log"
+            >
+                <span className="text-2xl">🪵</span>
+            </button>
+            <span className="text-[9px] font-bold text-white/80 uppercase tracking-wider drop-shadow">{hasWood ? 'Throw' : 'No logs'}</span>
+        </div>
+    );
+};
+
+// =====================================================================
 // Zoom slider (right edge): top = closer, bottom = further. Double-tap resets.
 // =====================================================================
 const SLIDER_PAD = 12; // px of track above/below the thumb's travel
@@ -300,6 +329,7 @@ export const Controls = () => {
             </div>
 
             <DiveButton />
+            <ThrowButton />
 
             <ZoomSlider />
 
@@ -352,9 +382,16 @@ if (typeof window !== 'undefined') {
             keys[key] = true;
             updateKeyboardInput();
         } else if (e.code === 'Space') {
+            // In the water Space dives (hold); on land it throws a log
             e.preventDefault();
-            keyboardState.diveKey = true;
-            setInput({ dive: true });
+            if (useGameStore.getState().isInWater) {
+                keyboardState.diveKey = true;
+                setInput({ dive: true });
+            } else if (!e.repeat) {
+                useGameStore.getState().throwLog();
+            }
+        } else if (key === 'f') {
+            if (!e.repeat) useGameStore.getState().throwLog();
         } else if (key === 'r' || key === 'e' || key === 'q') {
             const s = useGameStore.getState();
             if (s.isPlacementMode) s.rotatePlacement(key === 'q' ? -Math.PI / 4 : Math.PI / 4);

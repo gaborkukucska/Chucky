@@ -12,6 +12,7 @@ Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you
   - **Magnet**: reach a 3x combo and nearby logs fly to you.
   - **Zoomies**: eat 3 berries to run and swim faster for 20 seconds.
 - **Swimming and diving**: Swim across the river and dive for logs and fruit that have sunk. Keep an eye on the breath bar.
+- **Throwing logs**: On land, throw a log the way Chucky faces. A wolf runs off after 2 hits and a bear after 3. A thrown log can be picked up again, but only gives the wood back.
 - **Day and night**: The sun and moon move across the sky. At night wolves and bears come out.
 - **Four camera views**:
   - **3rd person** chase cam behind Chucky.
@@ -91,7 +92,7 @@ If you run the server directly on your phone with Termux:
 2. **Collect logs**: walk over logs to pick them up. Picking logs up quickly builds your combo.
 3. **Build**: tap 🏗️, pick an unlocked blueprint and place it. The see-through preview is cyan when the spot is valid and red when it isn't (not enough wood, too close to another structure, or off the map).
 4. **Eat**: apples heal 20 and berries heal 10 (up to 200% health). Every 3rd berry gives you Zoomies.
-5. **Survive the night**: wolves and bears hurt. Stay clear, or head for the water.
+5. **Survive the night**: wolves and bears hurt. Stay clear, head for the water, or throw logs at them (🪵): a wolf runs off after 2 hits (+20 points) and a bear after 3 (+40).
 
 If the game runs slowly on your phone, open ☰ → ⚙️ Settings and pick **Low** graphics. Settings is also on the start screen.
 
@@ -105,6 +106,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 |---|---|
 | **Joystick** (bottom middle) | **3rd person view:** up/down walks forward/back, left/right turns Chucky (the camera stays behind him). **Other views:** push where you want to go on the screen. |
 | **🤿 Dive** (bottom left, in water) | Hold to dive, release to float back up. Watch the breath bar. |
+| **🪵 Throw** (bottom left, on land) | Throw a log the way Chucky faces. Costs 1 log; you can throw about every 0.6 seconds. |
 | **Zoom slider** (right edge) | Slide up to move the camera closer, down to move it further away. Double-tap the slider to reset. |
 | **🏗️ / ✅ / 💥** (top right) | Opens the build menu. Becomes ✅ to **place** while building. Next to a structure it becomes 💥: **hold** it to demolish (you get 80% of the logs back). |
 | **✖️** | Stop building. |
@@ -117,7 +119,8 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | Key | What it does |
 |---|---|
 | **W A S D** / **arrow keys** | Move (in 3rd person: W/S forward/back, A/D turn) |
-| **Space** (hold) | Dive |
+| **Space** | In the water: hold to dive. On land: throw a log |
+| **F** | Throw a log |
 | **Mouse wheel** | Zoom the camera |
 | **R** or **E** / **Q** | Rotate the structure while building (Q turns the other way) |
 | **Enter** | Place the structure |
@@ -151,6 +154,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 
 ### Key design decisions
 
+- **Physics positions.** @react-three/cannon moves a body by writing its object's matrix; `object.position` keeps the spawn point. Read live positions with `readBodyPosition` / `readBodyTransform` from `globals.ts`.
 - **Kinematic player.** Chucky is a kinematic physics body that the code moves itself. Collisions with trees, boulders and structure logs are resolved by hand in `Woodchuck.tsx`. Physics contacts between a kinematic and a static body never fire, so gameplay never relies on them: chomping and pick-ups use distance checks.
 - **Frame-rate independent.** Smoothing uses `1 - exp(-rate * dt)` and long frames are clamped (`MAX_FRAME_DELTA`). A slow phone plays the same as a fast laptop.
 - **No per-frame React churn.** Per-frame data lives in refs and `globals.ts`. Store actions return `state` unchanged when nothing changed, so subscribers aren't woken. Components use selectors.

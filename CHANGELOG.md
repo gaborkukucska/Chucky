@@ -2,9 +2,33 @@
 
 All notable changes to Woodchuck Dam Builder 3000 (*Chucky*). Newest first.
 
-## 2026-10-31: Regression fixes and new features (rounds 1–8)
+## 2026-10-31: Regression fixes and new features (rounds 1–9)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 9: Throwing logs
+
+**The throw button.** On land, a 🪵 **Throw** button sits where the 🤿 dive button is in the water, under the left thumb. On the keyboard, Space throws on land (and still dives in the water), and F throws too.
+
+**How a throw works.**
+- A throw costs 1 log, with a 0.6 s cooldown.
+- The log flies the way Chucky faces, spinning, with real physics, so it bounces off trees, rocks and structures.
+
+**Hitting wolves and bears.** A log that hits a wolf or bear while it's still flying fast knocks the animal back and dazes it for a moment (it flashes red and stops attacking). A wolf runs off after 2 hits (+20 points) and a bear after 3 (+40).
+
+**Picking thrown logs up again.** A thrown log lands as a normal pick-up, but it only gives back +1 wood: no score, combo or log count. That way, throwing and re-collecting can't be farmed, even after saving and loading.
+
+**Bug fix: physics positions.** The physics engine moves a body by updating its transform matrix, but much of the game read the body's position field, which kept the spot where it spawned. Everything below now reads the real, live position:
+- Pick-up by proximity, expiry when a log drifts off the map, and the log magnet. The magnet used to yank logs back to where they spawned.
+- Picking up fruit.
+- Wolves and bears now chase and bite from where they really are, and stop at the river bank properly.
+- Saved games now store where logs and fruit really are, not where they spawned.
+
+**Logs in the river.** The old floating-log code never actually ran for logs dropped on land, and for debris in the river it pushed logs up into the sky. Logs therefore sink slowly to the river bed, which matches how the game has always played (dive to fetch them). They now also get a wet look underwater.
+
+**Groundwork for multiplayer.** Thrown logs and animals are registered so the next round can check hits against other players.
+
+Files: `types.ts`, `globals.ts`, `store.ts`, `services/persistence.ts`, `services/audio.ts`, `components/WorldObjects.tsx`, `components/Game3D.tsx`, `components/Controls.tsx`, `README.md`, `CHANGELOG.md`.
 
 ### Round 8: Build ghost drawn in the right order
 

@@ -10,7 +10,7 @@ import { Water } from './Water';
 import { Boulder, Tree, Log, LooseLog, PlacedStructureRenderer } from './WorldObjects';
 import { Woodchuck } from './Woodchuck';
 import { FoodData, MobData, GraphicsQuality } from '../types';
-import { currentWoodchuckPos, liveObjects, playerState } from '../globals';
+import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition } from '../globals';
 
 const WATER_LEVEL = -1.5;
 const MAX_FRAME_DELTA = 0.1;
@@ -48,6 +48,9 @@ const MOB_HIT_RANGE = 1.3;
 const MOB_HIT_COOLDOWN = 1200;  // ms between hits from the same mob
 const MOB_STUN_TIME = 600;      // ms a mob backs off after landing a hit
 const MOB_KNOCKBACK = 60;       // Impulse applied to the mob after a hit (mass 10)
+const MOB_HITS_TO_CHASE = { wolf: 2, bear: 3 }; // Thrown-log hits before it runs off
+const MOB_THROW_STUN_TIME = 900; // ms a mob is dazed after a log hits it
+const MOB_THROW_KNOCKBACK = 55;
 
 // =====================================================================
 // Optional scene elements (e.g. drei Clouds load a texture from a CDN).
@@ -364,13 +367,14 @@ const Food = React.memo(({ data }: { data: FoodData }) => {
     }, [data.id]);
 
     // Proximity pick-up - robust fallback for the kinematic player body
+    const foodPos = useMemo(() => new THREE.Vector3(), []);
     useFrame(() => {
         // @ts-ignore
         const mesh = ref.current as THREE.Object3D | null;
         if (!mesh || collectedRef.current) return;
         const s = useGameStore.getState();
         if (s.isPaused || s.phase !== 'PLAYING') return;
-        if (mesh.position.distanceTo(currentWoodchuckPos) < FOOD_PICKUP_RADIUS) collect();
+        if (readBodyPosition(mesh, foodPos).distanceTo(currentWoodchuckPos) < FOOD_PICKUP_RADIUS) collect();
     });
 
     return (
@@ -391,6 +395,11 @@ const Food = React.memo(({ data }: { data: FoodData }) => {
 const MobRenderer = React.memo(({ data }: { data: MobData }) => {
     const touchingRef = useRef(false);
     const lastHitRef = useRef(0);
+    const hitsLeftRef = useRef(MOB_HITS_TO_CHASE[data.type]);
+    const stunUntilRef = useRef(0);
+    const flashUntilRef = useRef(0);
+    const bodyMatRef = useRef<THREE.MeshStandardMaterial>(null);
+    const livePos = useMemo(() => new THREE.Vector3(), []);
 
     const [ref, api] = useSphere(() => ({
         mass: 10,
@@ -407,6 +416,24 @@ const MobRenderer = React.memo(({ data }: { data: MobData }) => {
     const vy = useRef(0);
     useEffect(() => api.velocity.subscribe(v => { vy.current = v[1]; }), [api.velocity]);
 
+    // Thrown logs check this registry: a hit dazes and knocks the mob back; enough hits chase it off
+    useEffect(() => {
+        const mesh = ref.current as THREE.Object3D | null;
+        if (!mesh) return;
+        liveObjects.mobs.set(data.id, {
+            object: mesh,
+            hit: (dirX: number, dirZ: number) => {
+                const now = Date.now();
+                stunUntilRef.current = now + MOB_THROW_STUN_TIME;
+                flashUntilRef.current = now + 250;
+                api.applyImpulse([dirX * MOB_THROW_KNOCKBACK, 25, dirZ * MOB_THROW_KNOCKBACK], [0, 0, 0]);
+                hitsLeftRef.current -= 1;
+                if (hitsLeftRef.current <= 0) useGameStore.getState().defeatMob(data.id);
+            },
+        });
+        return () => { liveObjects.mobs.delete(data.id); };
+    }, [data.id, api]);
+
     useFrame(() => {
         // @ts-ignore
         const mesh = ref.current as THREE.Object3D | null;
@@ -419,7 +446,7 @@ const MobRenderer = React.memo(({ data }: { data: MobData }) => {
             return;
         }
 
-        const pos = mesh.position;
+        const pos = readBodyPosition(mesh, livePos); // Live physics position (not the spawn point)
         if (pos.y < -30) {
             s.removeMob(data.id);
             return;
@@ -429,6 +456,13 @@ const MobRenderer = React.memo(({ data }: { data: MobData }) => {
         const dz = currentWoodchuckPos.z - pos.z;
         const dist = Math.sqrt(dx * dx + dz * dz);
         const now = Date.now();
+
+        // Flash red when hit by a log; dazed mobs don't move or attack
+        if (bodyMatRef.current) bodyMatRef.current.emissive.setHex(now < flashUntilRef.current ? 0x991111 : 0x000000);
+        if (now < stunUntilRef.current) {
+            touchingRef.current = false;
+            return;
+        }
 
         // Attack (collision or proximity), with a per-mob cooldown
         const touching = touchingRef.current || dist < MOB_HIT_RANGE;
@@ -466,7 +500,7 @@ const MobRenderer = React.memo(({ data }: { data: MobData }) => {
     return (
         <mesh ref={ref as any} castShadow>
             <sphereGeometry args={[0.5, 16, 16]} />
-            <meshStandardMaterial color={data.type === 'wolf' ? '#555' : '#3E2723'} />
+            <meshStandardMaterial ref={bodyMatRef} color={data.type === 'wolf' ? '#555' : '#3E2723'} />
             <mesh position={[0.2, 0.2, 0.4]}>
                 <sphereGeometry args={[0.1]} />
                 <meshBasicMaterial color="red" />

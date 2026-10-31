@@ -32,6 +32,8 @@ export interface LooseLogData {
   createdAt: number;
   settled?: boolean; // Restored from a save: no spawn "pop", keep the resting position
   value?: number;    // Logs this pickup is worth (demolition debris is bundled). Default 1
+  velocity?: [number, number, number]; // Launch velocity (thrown) instead of the spawn "pop"
+  thrown?: boolean;  // Thrown by a Chucky: hurts what it hits while flying; pick-up = wood only, no score
 }
 
 export interface BoulderData {

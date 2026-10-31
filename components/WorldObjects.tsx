@@ -4,12 +4,27 @@ import { useSphere, useCylinder, useCompoundBody } from '@react-three/cannon';
 import * as THREE from 'three';
 import { useGameStore, getRiverWidth, calculateTerrainHeight, MAP_SIZE } from '../store';
 import { TreeData, LogData, LooseLogData, BoulderData, PlacedStructure, Blueprint } from '../types';
-import { currentWoodchuckPos, liveObjects } from '../globals';
+import { currentWoodchuckPos, liveObjects, readBodyPosition } from '../globals';
+import { audioService } from '../services/audio';
 
 const WATER_LEVEL = -1.5;
 // Logs are picked up when Chucky's centre is this close (squared) - fallback to onCollide,
 // which is not guaranteed for the kinematic player body.
 const PICKUP_RADIUS_SQ = 1.4 * 1.4;
+// Thrown logs: hit things while they're still flying fast
+const THROWN_FLIGHT_MS = 2500;      // Only the first moments of a throw can hit
+const THROWN_HIT_SPEED = 6;         // m/s - slower than this it's just rolling
+const THROWN_HIT_RADIUS_SQ = 1.3 * 1.3;
+const _hitSeg = new THREE.Vector3();
+// Squared distance from point (px,py,pz) to the segment a->b (the log's path this frame,
+// so a fast log can't skip past a target between two frames)
+const distSqToSegment = (px: number, py: number, pz: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = dx * dx + dy * dy + dz * dz;
+    const t = len > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / len)) : 0;
+    _hitSeg.set(ax + dx * t - px, ay + dy * t - py, az + dz * t - pz);
+    return _hitSeg.lengthSq();
+};
 
 export const Boulder = React.memo(({ data }: { data: BoulderData }) => {
     const [ref] = useSphere(() => ({
@@ -271,6 +286,9 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
     const collectedRef = useRef(false);
     const value = data.value ?? 1;
     const size = looseLogSize(value);
+    const thrown = !!data.thrown;
+    // Thrown logs: last position (for speed) and whether it already hit something
+    const flight = useRef({ x: NaN, y: 0, z: 0, hit: false });
     // Only send damping to the physics worker when it changes (was 2 messages per log per frame)
     const dampingRef = useRef({ linear: -1, angular: -1 });
     
@@ -300,7 +318,9 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
     const helper = useMemo(() => ({
         up: new THREE.Vector3(0, 1, 0),
         tempVec: new THREE.Vector3(),
-        localY: new THREE.Vector3()
+        localY: new THREE.Vector3(),
+        livePos: new THREE.Vector3(),
+        mobPos: new THREE.Vector3()
     }), []);
 
     // Register the live body so a save captures its real position
@@ -313,6 +333,14 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
     // Initial "Pop" Explosion (skipped for logs restored from a save)
     useEffect(() => {
         if (data.settled) return;
+        if (data.velocity) {
+            // Thrown: launch it, spinning
+            const [vx, vy, vz] = data.velocity;
+            const horizontal = Math.hypot(vx, vz) || 1;
+            api.velocity.set(vx, vy, vz);
+            api.angularVelocity.set((vz / horizontal) * 12, 0, (-vx / horizontal) * 12);
+            return;
+        }
         const angle = Math.random() * Math.PI * 2;
         // Increased force to scatter more
         const force = 10 + Math.random() * 8; 
@@ -342,7 +370,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
         }
     };
 
-    useFrame((state) => {
+    useFrame((state, delta) => {
         if (isPaused) {
             api.velocity.set(0, 0, 0);
             api.angularVelocity.set(0, 0, 0);
@@ -352,7 +380,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
         // @ts-ignore
         const mesh = ref.current;
         if (mesh) {
-            const pos = mesh.position;
+            const pos = readBodyPosition(mesh, helper.livePos); // Live physics position (not the spawn point)
             const now = Date.now();
             const age = now - data.createdAt;
 
@@ -365,6 +393,33 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
             if (Math.abs(pos.x) > MAP_SIZE / 2 - 2 || Math.abs(pos.z) > MAP_SIZE / 2 - 2 || pos.y < -40) {
                 expireLooseLog(data.id);
                 return;
+            }
+
+            // Thrown and still flying fast: hit a wolf/bear in its path (once)
+            const f = flight.current;
+            if (thrown && !f.hit && age < THROWN_FLIGHT_MS) {
+                if (!Number.isNaN(f.x) && delta > 0) {
+                    const vx = (pos.x - f.x) / delta;
+                    const vy = (pos.y - f.y) / delta;
+                    const vz = (pos.z - f.z) / delta;
+                    const speed = Math.hypot(vx, vy, vz);
+                    if (speed > THROWN_HIT_SPEED) {
+                        for (const mob of liveObjects.mobs.values()) {
+                            const mp = readBodyPosition(mob.object, helper.mobPos);
+                            if (distSqToSegment(mp.x, mp.y, mp.z, f.x, f.y, f.z, pos.x, pos.y, pos.z) < THROWN_HIT_RADIUS_SQ) {
+                                const h = Math.hypot(vx, vz) || 1;
+                                f.hit = true;
+                                mob.hit(vx / h, vz / h);
+                                audioService.playHit();
+                                api.velocity.set(vx * 0.15, Math.max(vy, 2), vz * 0.15); // Bounce off and drop
+                                break;
+                            }
+                        }
+                    }
+                }
+                f.x = pos.x;
+                f.y = pos.y;
+                f.z = pos.z;
             }
 
             // Proximity pick-up
@@ -440,8 +495,8 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
 
             // Visual Feedback
             if (matRef.current) {
-                if (!isCollectable) {
-                    // Flash Yellow/Gold while invulnerable
+                if (!isCollectable && !thrown) {
+                    // Flash Yellow/Gold while invulnerable (not for thrown logs - they look like wood in flight)
                     const flash = Math.floor(age / 150) % 2 === 0;
                     matRef.current.opacity = flash ? 0.8 : 0.3;
                     matRef.current.transparent = true;
@@ -466,57 +521,18 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                 }
             }
 
-            // --- Improved Water Physics ---
-            // Check intersection with water level
-            const surfaceY = WATER_LEVEL + 0.6; // Higher target for loose logs
-            const inWater = pos.y < surfaceY;
+            // --- Water ---
+            // Logs are waterlogged: in the river they sink slowly and settle on the bed (dive to
+            // fetch them). The old buoyancy code read the body's stale spawn position, so it never
+            // ran for logs dropped on land, and pushed river debris up into the sky; sinking is
+            // how the game has actually played.
+            const inWater = pos.y < WATER_LEVEL;
 
             if (isBeingMagnetized) {
                 // Skip water/terrain physics if being magnetized
                 // We already set velocity above
-            } else if (inWater) { 
-                 const riverW = getRiverWidth(pos.z);
-                 const flowSpeed = 90 / Math.max(1, riverW); 
-
-                 const displacement = surfaceY - pos.y;
-                 
-                 const gravity = 20;
-                 const mass = size.mass;
-                 // Force required to hold mass up = gravity * mass.
-                 // High buoyancy factor for snappy surface return
-                 const buoyancyFactor = 1000; // Even higher
-                 
-                 // Procedural bop function for surface floating
-                 const bop = Math.sin(state.clock.elapsedTime * 3 + pos.x * 0.5) * 4 * mass;
-                 let uplift = (gravity * mass) + (displacement * buoyancyFactor) + bop;
-                 
-                 // If very deep, apply a strong upward impulse to "pop" it up
-                 if (displacement > 1.0) {
-                    uplift *= 3.0;
-                 }
-
-                 api.applyForce([0, uplift * (mass / 2), 0], [pos.x, pos.y, pos.z]); 
-                 api.applyForce([0, 0, flowSpeed * (mass / 2)], [pos.x, pos.y, pos.z]);
-
-                 // Orientation Correction (Torque to Horizontal)
-                 const localY = helper.localY.set(0, 1, 0).applyQuaternion(mesh.quaternion);
-                 const alignment = localY.dot(helper.up); 
-
-                 if (Math.abs(alignment) > 0.05) {
-                    helper.tempVec.crossVectors(localY, helper.up).normalize();
-                    if (helper.tempVec.lengthSq() < 0.01) {
-                         helper.tempVec.set(1, 0, 0); 
-                    }
-                    const torqueStrength = 40 * mass * Math.abs(alignment);
-                    api.applyTorque([
-                        helper.tempVec.x * torqueStrength, 
-                        0, 
-                        helper.tempVec.z * torqueStrength
-                    ]);
-                 }
-
-                 // Adaptive damping: Very low when submerged
-                 setDamping(displacement > 0.4 ? 0.1 : 0.6, 0.3);
+            } else if (inWater) {
+                 setDamping(0.6, 0.6); // Water drag: sinks and settles gently
 
                  // Visual "Wet" look - Darker and shinier
                  if (matRef.current && isCollectable && age <= 110000) {

@@ -1,8 +1,9 @@
 import { create } from 'zustand';
+import * as THREE from 'three';
 import { GamePhase, CameraMode, GraphicsQuality, TreeData, LogData, LooseLogData, BoulderData, Blueprint, PlacedStructure, ComboState, Notification, MobData, FoodData } from './types';
 import { audioService, AudioChannel, AudioSettings } from './services/audio';
 import { persistence, SaveData, SAVE_VERSION, sanitizeName } from './services/persistence';
-import { currentWoodchuckPos, liveObjects, playerState } from './globals';
+import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, readBodyTransform } from './globals';
 
 export const MAP_SIZE = 300;
 
@@ -52,6 +53,15 @@ const DEBRIS_STAGGER_MS = 60;
 // Hold-to-destroy time: 1.5s + 1s per 250 logs of blueprint, capped
 const MAX_DESTROY_SECONDS = 8;
 
+// Throwing logs: costs 1 log, short cooldown. The thrown log flies, hurts what it hits
+// and lands as a pick-up worth +1 wood - no score or combo, so throwing and picking the
+// log up again can't be farmed.
+export const THROW_COOLDOWN_MS = 600;
+const THROW_SPEED = 15;      // m/s forwards
+const THROW_LIFT = 4;        // m/s upwards - a flat arc: hits a wolf 2-8 m away, lands ~10 m out
+const THROW_SPAWN_AHEAD = 1.2;
+const MOB_DEFEAT_POINTS = { wolf: 20, bear: 40 };
+
 // Camera zoom multiplier (right-hand slider / mouse wheel); saved per device
 export const CAMERA_ZOOM_MIN = 0.45;
 export const CAMERA_ZOOM_MAX = 2.2;
@@ -80,6 +90,7 @@ interface GameState {
   cameraZoom: number;
   quality: GraphicsQuality;
   audioSettings: AudioSettings;
+  lastThrowTime: number;
   woodCount: number;
   score: number;
   totalLogsCollected: number;
@@ -209,6 +220,8 @@ interface GameState {
   setCameraZoom: (zoom: number) => void;
   setQuality: (quality: GraphicsQuality) => void;
   setAudioChannel: (channel: AudioChannel, enabled: boolean) => void;
+  throwLog: () => boolean;
+  defeatMob: (id: string) => void;
 }
 
 // =====================================================================
@@ -435,6 +448,10 @@ const notifyAndPause = (state: GameState, notification: Notification): Partial<G
 const EMPTY_COMBO: ComboState = { active: false, startTime: 0, logsCollected: 0, multiplier: 1, lastLogTime: 0, logsSinceLastLevel: 0, levelStartTime: 0 };
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
+// Scratch objects for reading live physics transforms when saving
+const _savePos = new THREE.Vector3();
+const _saveQuat = new THREE.Quaternion();
+const _saveEuler = new THREE.Euler();
 const roundVec = (v: Vec3 | number[]): Vec3 => [round3(v[0]), round3(v[1]), round3(v[2])];
 
 // =====================================================================
@@ -604,6 +621,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   cameraZoom: clampZoom(persistence.getCameraZoom()),
   quality: persistence.getQuality() ?? defaultQuality(),
   audioSettings: persistence.getAudioSettings(),
+  lastThrowTime: 0,
   isPlacementMode: false,
   isBuildMenuOpen: false,
   selectedBlueprintId: null,
@@ -739,6 +757,50 @@ export const useGameStore = create<GameState>((set, get) => ({
       audioService.setChannelEnabled(channel, enabled);
   },
 
+  // Throw one log the way Chucky faces (on land). Returns false if it can't be thrown now.
+  throwLog: () => {
+      const s = get();
+      const now = Date.now();
+      if (s.phase !== 'PLAYING' || s.isPaused || s.isGameMenuOpen || s.isBuildMenuOpen) return false;
+      if (s.isInWater || s.woodCount < 1 || now - s.lastThrowTime < THROW_COOLDOWN_MS) return false;
+      const facing = playerState.facing;
+      const sin = Math.sin(facing);
+      const cos = Math.cos(facing);
+      const p = currentWoodchuckPos;
+      const log: LooseLogData = {
+          id: `throw-${now}-${Math.floor(Math.random() * 1e6)}`,
+          position: roundVec([p.x + sin * THROW_SPAWN_AHEAD, p.y + 0.5, p.z + cos * THROW_SPAWN_AHEAD]),
+          rotation: [0, round3(facing), round3(Math.PI / 2)], // Crosswise, like a thrown stick
+          createdAt: now,
+          velocity: [round3(sin * THROW_SPEED), THROW_LIFT, round3(cos * THROW_SPEED)],
+          thrown: true,
+          value: 1,
+      };
+      set({ woodCount: s.woodCount - 1, lastThrowTime: now, looseLogs: [...s.looseLogs, log] });
+      audioService.playThrow();
+      return true;
+  },
+
+  // A wolf/bear took enough log hits: it runs off
+  defeatMob: (id) => set((state) => {
+      const mob = state.mobs.find(m => m.id === id);
+      if (!mob) return state;
+      const points = MOB_DEFEAT_POINTS[mob.type];
+      const unlocks = applyUnlocks(state.blueprints, state.totalLogsCollected, state.score + points);
+      audioService.playLevelUp();
+      return {
+          mobs: state.mobs.filter(m => m.id !== id),
+          score: unlocks.score,
+          blueprints: unlocks.blueprints,
+          notification: unlocks.notification ?? {
+              id: `chased-${id}`,
+              title: mob.type === 'wolf' ? 'WOLF CHASED OFF!' : 'BEAR CHASED OFF!',
+              message: `Bonk! +${points} points`,
+              type: 'achievement',
+          },
+      };
+  }),
+
   addWood: () => set((state) => ({ woodCount: state.woodCount + 1 })),
 
   endCombo: () => set((state) => ({
@@ -758,6 +820,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (!log) return state;
       // Invulnerability (0.5s)
       if (Date.now() - log.createdAt < 500) return state;
+      if (log.thrown) {
+          // A thrown log only gives the wood back: no score, combo or log count (no farming)
+          audioService.playSuccess();
+          return {
+              woodCount: state.woodCount + (log.value ?? 1),
+              looseLogs: state.looseLogs.filter(l => l.id !== id)
+          };
+      }
       return {
           ...applyLogCollected(state, log.value ?? 1),
           looseLogs: state.looseLogs.filter(l => l.id !== id)
@@ -1175,16 +1245,22 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Live physics positions, so logs/fruit come back where they actually are
           looseLogs: s.looseLogs.map(l => {
               const obj = liveObjects.looseLogs.get(l.id);
+              if (obj) {
+                  readBodyTransform(obj, _savePos, _saveQuat);
+                  _saveEuler.setFromQuaternion(_saveQuat);
+              }
               return {
-                  position: roundVec(obj ? [obj.position.x, obj.position.y, obj.position.z] : l.position),
-                  rotation: roundVec(obj ? [obj.rotation.x, obj.rotation.y, obj.rotation.z] : l.rotation),
+                  position: roundVec(obj ? [_savePos.x, _savePos.y, _savePos.z] : l.position),
+                  rotation: roundVec(obj ? [_saveEuler.x, _saveEuler.y, _saveEuler.z] : l.rotation),
                   age: Math.max(0, ref - l.createdAt),
-                  value: l.value ?? 1
+                  value: l.value ?? 1,
+                  ...(l.thrown ? { thrown: true } : {})
               };
           }),
           food: s.food.map(f => {
               const obj = liveObjects.food.get(f.id);
-              return { position: roundVec(obj ? [obj.position.x, obj.position.y, obj.position.z] : f.position), type: f.type };
+              if (obj) readBodyPosition(obj, _savePos);
+              return { position: roundVec(obj ? [_savePos.x, _savePos.y, _savePos.z] : f.position), type: f.type };
           }),
           player: {
               position: roundVec([currentWoodchuckPos.x, currentWoodchuckPos.y, currentWoodchuckPos.z]),
@@ -1234,7 +1310,8 @@ export const useGameStore = create<GameState>((set, get) => ({
                   rotation: l.rotation,
                   createdAt: now - l.age,
                   settled: true,
-                  value: l.value ?? 1
+                  value: l.value ?? 1,
+                  thrown: !!l.thrown
               })),
               food: data.food.map((f, i) => ({
                   id: `food-${tag}-${i}`,
