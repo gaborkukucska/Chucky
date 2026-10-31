@@ -3,13 +3,13 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Physics, useSphere } from '@react-three/cannon';
 import { Sky, Stars, Cloud, Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
-import { useGameStore, calculateTerrainHeight, isNightTime, MAP_SIZE } from '../store';
+import { useGameStore, calculateTerrainHeight, isNightTime, MAP_SIZE, getRiverX, getRiverWidth } from '../store';
 import { audioService } from '../services/audio';
 import { Terrain } from './Terrain';
 import { Water } from './Water';
 import { Boulder, Tree, Log, LooseLog, PlacedStructureRenderer } from './WorldObjects';
 import { Woodchuck } from './Woodchuck';
-import { FoodData, MobData } from '../types';
+import { FoodData, MobData, GraphicsQuality } from '../types';
 import { currentWoodchuckPos, liveObjects, playerState } from '../globals';
 
 const WATER_LEVEL = -1.5;
@@ -19,8 +19,21 @@ const MAX_FRAME_DELTA = 0.1;
 const SUN_DISTANCE = 100;
 const SHADOW_EXTENT = 60; // Shadow camera half-size around Chucky (the sun follows him)
 
-// --- Grass ---
-const GRASS_COUNT = 40000;
+// --- Graphics quality (Settings menu) ---
+// dpr: pixel-ratio range (clamped to the screen's), shadowMap: sun shadow map size (moon: half)
+const QUALITY_SETTINGS: Record<GraphicsQuality, { dpr: number | [number, number]; shadowMap: number; clouds: boolean }> = {
+    LOW: { dpr: 1, shadowMap: 512, clouds: false },
+    MEDIUM: { dpr: [1, 1.5], shadowMap: 1024, clouds: true },
+    HIGH: { dpr: [1, 2], shadowMap: 2048, clouds: true },
+};
+
+// --- Grass --- only drawn in a window of tiles around Chucky (see Grass below)
+const GRASS_TILE = 12; // m
+const GRASS_QUALITY: Record<GraphicsQuality, { tilesAcross: number; bladesPerTile: number }> = {
+    LOW: { tilesAcross: 5, bladesPerTile: 45 },      // 60 m window,  1,125 blades
+    MEDIUM: { tilesAcross: 9, bladesPerTile: 60 },   // 108 m window, 4,860 blades
+    HIGH: { tilesAcross: 11, bladesPerTile: 90 },    // 132 m window, 10,890 blades
+};
 
 // --- Food ---
 const FOOD_PICKUP_RADIUS = 1.3;
@@ -203,7 +216,7 @@ const DestructionManager = () => {
 // =====================================================================
 // Day / night cycle - driven imperatively so the scene does not re-render every frame
 // =====================================================================
-const DayNightCycle = () => {
+const DayNightCycle = ({ shadowMapSize }: { shadowMapSize: number }) => {
     const isNight = useGameStore(state => isNightTime(state.timeOfDay));
 
     const skyRef = useRef<any>(null);
@@ -218,6 +231,20 @@ const DayNightCycle = () => {
         if (sunRef.current) sunRef.current.target = sunTarget;
         if (moonLightRef.current) moonLightRef.current.target = moonTarget;
     }, [sunTarget, moonTarget]);
+
+    // Quality change: resize the shadow maps (three.js recreates a map after it's disposed)
+    useEffect(() => {
+        const sizes: [THREE.DirectionalLight | null, number][] = [
+            [sunRef.current, shadowMapSize],
+            [moonLightRef.current, Math.max(512, shadowMapSize / 2)],
+        ];
+        for (const [light, size] of sizes) {
+            if (!light || light.shadow.mapSize.x === size) continue;
+            light.shadow.mapSize.set(size, size);
+            light.shadow.map?.dispose();
+            light.shadow.map = null;
+        }
+    }, [shadowMapSize]);
 
     useFrame(() => {
         // timeOfDay: 0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight
@@ -240,13 +267,16 @@ const DayNightCycle = () => {
         moonTarget.position.copy(p);
         moonTarget.updateMatrixWorld();
 
+        // Only render a shadow map while its light is up (both rendered every frame before)
         if (sunRef.current) {
             sunRef.current.position.set(p.x + sX, p.y + sY, p.z + sZ);
             sunRef.current.intensity = sunIntensity;
+            sunRef.current.shadow.autoUpdate = sunIntensity > 0;
         }
         if (moonLightRef.current) {
             moonLightRef.current.position.set(p.x - sX, p.y - sY, p.z);
             moonLightRef.current.intensity = moonIntensity;
+            moonLightRef.current.shadow.autoUpdate = moonIntensity > 0;
         }
         if (moonRef.current) {
             moonRef.current.position.set(-sX * 4, -sY * 4, 0);
@@ -275,7 +305,7 @@ const DayNightCycle = () => {
                 ref={sunRef}
                 intensity={1}
                 castShadow
-                shadow-mapSize={[2048, 2048]}
+                shadow-mapSize={[shadowMapSize, shadowMapSize]}
                 shadow-bias={-0.0005}
                 shadow-camera-left={-SHADOW_EXTENT}
                 shadow-camera-right={SHADOW_EXTENT}
@@ -289,7 +319,7 @@ const DayNightCycle = () => {
                 intensity={0}
                 color="#AACCEE"
                 castShadow
-                shadow-mapSize={[1024, 1024]}
+                shadow-mapSize={[Math.max(512, shadowMapSize / 2), Math.max(512, shadowMapSize / 2)]}
                 shadow-bias={-0.0005}
                 shadow-camera-left={-SHADOW_EXTENT}
                 shadow-camera-right={SHADOW_EXTENT}
@@ -450,74 +480,148 @@ const MobRenderer = React.memo(({ data }: { data: MobData }) => {
 });
 
 // =====================================================================
-// Grass (restored) - instanced blades with sway + push-away around Chucky
+// Grass - only around Chucky. The world is split into GRASS_TILE-sized tiles; the
+// tilesAcross x tilesAcross tiles around Chucky's tile are drawn. Each tile's blades
+// are generated from the tile's coordinates (same grass every time you come back).
+// Slots are reused like a ring buffer: when Chucky crosses into a new tile only the
+// row/column of tiles that came into range is rebuilt and uploaded. Blades shrink
+// into the ground towards the edge of the window, so it has no visible border.
 // =====================================================================
-const Grass = () => {
+const tileHash = (x: number, z: number) => {
+    let h = (Math.imul(x, 374761393) + Math.imul(z, 668265263)) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return (h ^ (h >>> 16)) >>> 0;
+};
+const wrapIndex = (v: number, n: number) => ((v % n) + n) % n;
+const ZERO_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
+const EMPTY_SLOT = 0x7fffffff;
+
+const Grass = ({ quality }: { quality: GraphicsQuality }) => {
+    const { tilesAcross, bladesPerTile } = GRASS_QUALITY[quality];
+    const tileCount = tilesAcross * tilesAcross;
+    const count = tileCount * bladesPerTile;
+    const half = Math.floor(tilesAcross / 2);
+    const fadeRadius = half * GRASS_TILE - 1; // Chucky is always at least half*TILE from the window edge
+
     const meshRef = useRef<THREE.InstancedMesh>(null);
-    const materialRef = useRef<THREE.MeshStandardMaterial>(null);
+    const slotTiles = useMemo(() => new Int32Array(tileCount * 2).fill(EMPTY_SLOT), [tileCount]);
+    const lastTile = useRef<[number, number] | null>(null);
+    const dummy = useMemo(() => new THREE.Object3D(), []);
 
-    const instances = useMemo(() => {
-        const temp: THREE.Matrix4[] = [];
-        const dummy = new THREE.Object3D();
+    // Blade base at y = 0 so it stands on the ground and fades into it
+    const geometry = useMemo(() => {
+        const g = new THREE.PlaneGeometry(0.15, 1, 1, 4);
+        g.translate(0, 0.5, 0);
+        return g;
+    }, []);
+    useEffect(() => () => geometry.dispose(), [geometry]);
 
-        for (let i = 0; i < GRASS_COUNT; i++) {
-            const x = (Math.random() - 0.5) * MAP_SIZE;
-            const z = (Math.random() - 0.5) * MAP_SIZE;
+    // Hide every blade until its tile has been filled
+    useEffect(() => {
+        const mesh = meshRef.current;
+        if (!mesh) return;
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        for (let i = 0; i < count; i++) mesh.setMatrixAt(i, ZERO_MATRIX);
+        mesh.instanceMatrix.needsUpdate = true;
+    }, [count]);
 
-            // Patchy distribution
+    const fillTile = (mesh: THREE.InstancedMesh, slot: number, tx: number, tz: number) => {
+        let seed = tileHash(tx, tz) || 1;
+        const rand = () => {
+            seed = (seed + 0x6D2B79F5) | 0;
+            let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+        const limit = MAP_SIZE / 2;
+        const base = slot * bladesPerTile;
+        for (let i = 0; i < bladesPerTile; i++) {
+            // Always draw the same 5 numbers per blade, so a tile's grass never changes
+            const x = (tx + rand()) * GRASS_TILE;
+            const z = (tz + rand()) * GRASS_TILE;
+            const rotation = rand() * Math.PI;
+            const scaleY = 0.5 + rand() * 1.0;
+            const scaleXZ = 0.5 + rand() * 0.5;
+
+            // Patchy distribution, only on land, only on the map
             const noise = Math.sin(x * 0.1) * Math.cos(z * 0.1) + Math.sin(x * 0.3 + z * 0.2);
-            if (noise < -0.5) continue;
-
-            const y = calculateTerrainHeight(x, z);
-            if (y > WATER_LEVEL + 0.2) { // Only on land
-                dummy.position.set(x, y + 0.5, z);
-                dummy.rotation.set(0, Math.random() * Math.PI, 0);
-                const scaleY = 0.5 + Math.random() * 1.0;
-                const scaleXZ = 0.5 + Math.random() * 0.5;
+            const y = noise < -0.5 || Math.abs(x) > limit || Math.abs(z) > limit ? -Infinity : calculateTerrainHeight(x, z);
+            if (y > WATER_LEVEL + 0.2) {
+                dummy.position.set(x, y, z);
+                dummy.rotation.set(0, rotation, 0);
                 dummy.scale.set(scaleXZ, scaleY, scaleXZ);
                 dummy.updateMatrix();
-                temp.push(dummy.matrix.clone());
+                mesh.setMatrixAt(base + i, dummy.matrix);
+            } else {
+                mesh.setMatrixAt(base + i, ZERO_MATRIX);
             }
         }
-        return temp;
-    }, []);
-
-    useEffect(() => {
-        if (meshRef.current) {
-            instances.forEach((matrix, i) => meshRef.current!.setMatrixAt(i, matrix));
-            meshRef.current.instanceMatrix.needsUpdate = true;
-        }
-    }, [instances]);
+    };
 
     const uniforms = useMemo(() => ({
         time: { value: 0 },
-        playerPos: { value: new THREE.Vector3() }
-    }), []);
+        playerPos: { value: new THREE.Vector3() },
+        fadeRadius: { value: fadeRadius },
+    }), [fadeRadius]);
 
     useFrame((state) => {
         uniforms.time.value = state.clock.elapsedTime;
         uniforms.playerPos.value.copy(currentWoodchuckPos);
+
+        const mesh = meshRef.current;
+        const p = currentWoodchuckPos;
+        if (!mesh || (p.x === 0 && p.y === 0 && p.z === 0)) return; // Not spawned yet
+        const cx = Math.floor(p.x / GRASS_TILE);
+        const cz = Math.floor(p.z / GRASS_TILE);
+        const last = lastTile.current;
+        if (last && last[0] === cx && last[1] === cz) return;
+        lastTile.current = [cx, cz];
+
+        const attr = mesh.instanceMatrix;
+        attr.clearUpdateRanges();
+        let changed = 0;
+        for (let dz = -half; dz <= half; dz++) {
+            for (let dx = -half; dx <= half; dx++) {
+                const tx = cx + dx;
+                const tz = cz + dz;
+                const slot = wrapIndex(tx, tilesAcross) + wrapIndex(tz, tilesAcross) * tilesAcross;
+                if (slotTiles[slot * 2] === tx && slotTiles[slot * 2 + 1] === tz) continue;
+                slotTiles[slot * 2] = tx;
+                slotTiles[slot * 2 + 1] = tz;
+                fillTile(mesh, slot, tx, tz);
+                attr.addUpdateRange(slot * bladesPerTile * 16, bladesPerTile * 16);
+                changed++;
+            }
+        }
+        if (changed === 0) return;
+        if (changed > tileCount / 2) attr.clearUpdateRanges(); // Mostly new (spawn / load): upload it all
+        attr.needsUpdate = true;
     });
 
     const onBeforeCompile = (shader: any) => {
         shader.uniforms.time = uniforms.time;
         shader.uniforms.playerPos = uniforms.playerPos;
+        shader.uniforms.fadeRadius = uniforms.fadeRadius;
         shader.vertexShader = `
             uniform float time;
             uniform vec3 playerPos;
+            uniform float fadeRadius;
             ${shader.vertexShader}
         `.replace(
             '#include <begin_vertex>',
             `
             #include <begin_vertex>
             vec4 worldPos = instanceMatrix * vec4(position, 1.0);
+            float dist = distance(worldPos.xz, playerPos.xz);
+
+            // Shrink into the ground towards the edge of the grass window
+            trsformed *= 1.0 - smoothstep(fadeRadius * 0.75, fadeRadius, dist);
 
             // Sway (only the top of the blade moves)
             float sway = sin(time * 2.0 + worldPos.x * 0.5 + worldPos.z * 0.5) * 0.2;
             transformed.x += sway * uv.y;
 
             // Push away from Chucky
-            float dist = distance(worldPos.xz, playerPos.xz);
             if (dist < 2.0) {
                 vec3 dir = normalize(worldPos.xyz - playerPos);
                 float force = (2.0 - dist) / 2.0;
@@ -530,10 +634,8 @@ const Grass = () => {
     };
 
     return (
-        <instancedMesh ref={meshRef} args={[undefined, undefined, instances.length]} receiveShadow frustumCulled={false}>
-            <planeGeometry args={[0.15, 1, 1, 4]} />
+        <instancedMesh ref={meshRef} args={[geometry, undefined, count]} receiveShadow frustumCulled={false}>
             <meshStandardMaterial
-                ref={materialRef}
                 color="#66bb6a"
                 side={THREE.DoubleSide}
                 onBeforeCompile={onBeforeCompile}
@@ -542,6 +644,28 @@ const Grass = () => {
             />
         </instancedMesh>
     );
+};
+
+// =====================================================================
+// Environment sounds: tell the audio service how close the river is, day/night, underwater
+// =====================================================================
+const AMBIENT_UPDATE_INTERVAL = 0.25; // s
+
+const AmbientAudioManager = () => {
+    const elapsed = useRef(AMBIENT_UPDATE_INTERVAL);
+    useFrame((_, delta) => {
+        elapsed.current += delta;
+        if (elapsed.current < AMBIENT_UPDATE_INTERVAL) return;
+        elapsed.current = 0;
+        const p = currentWoodchuckPos;
+        const s = useGameStore.getState();
+        audioService.updateEnvironment({
+            riverDistance: Math.max(0, Math.abs(p.x - getRiverX(p.z)) - getRiverWidth(p.z)),
+            isNight: isNightTime(s.timeOfDay),
+            isUnderwater: s.isInWater && p.y < WATER_LEVEL - 0.2,
+        });
+    });
+    return null;
 };
 
 // =====================================================================
@@ -556,6 +680,8 @@ const GameScene = () => {
     const blueprints = useGameStore(state => state.blueprints);
     const food = useGameStore(state => state.food);
     const mobs = useGameStore(state => state.mobs);
+    const quality = useGameStore(state => state.quality);
+    const qualitySettings = QUALITY_SETTINGS[quality];
 
     // Audio Init
     useEffect(() => {
@@ -577,17 +703,20 @@ const GameScene = () => {
 
     return (
         <div className="w-full h-full bg-black">
-            <Canvas shadows camera={{ position: [0, 15, 20], fov: 50 }}>
+            <Canvas shadows dpr={qualitySettings.dpr} camera={{ position: [0, 15, 20], fov: 50 }}>
                 <TimeManager />
                 <DestructionManager />
-                <DayNightCycle />
+                <AmbientAudioManager />
+                <DayNightCycle shadowMapSize={qualitySettings.shadowMap} />
 
-                <OptionalBoundary>
-                    <Suspense fallback={null}>
-                        <Cloud opacity={0.5} speed={0.4} bounds={[10, 1.5, 1.5]} segments={20} position={[0, 20, -10]} />
-                        <Cloud opacity={0.3} speed={0.1} bounds={[50, 20, 20]} segments={10} position={[40, 25, -50]} />
-                    </Suspense>
-                </OptionalBoundary>
+                {qualitySettings.clouds && (
+                    <OptionalBoundary>
+                        <Suspense fallback={null}>
+                            <Cloud opacity={0.5} speed={0.4} bounds={[10, 1.5, 1.5]} segments={20} position={[0, 20, -10]} />
+                            <Cloud opacity={0.3} speed={0.1} bounds={[50, 20, 20]} segments={10} position={[40, 25, -50]} />
+                        </Suspense>
+                    </OptionalBoundary>
+                )}
 
                 <Physics gravity={[0, -20, 0]}>
                     <Terrain />
@@ -607,7 +736,7 @@ const GameScene = () => {
                     <Woodchuck />
                 </Physics>
 
-                <Grass />
+                <Grass key={quality} quality={quality} />
                 <CameraController />
 
                 {/* Effects */}

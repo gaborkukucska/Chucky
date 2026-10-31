@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { GamePhase, CameraMode, TreeData, LogData, LooseLogData, BoulderData, Blueprint, PlacedStructure, ComboState, Notification, MobData, FoodData } from './types';
-import { audioService } from './services/audio';
+import { GamePhase, CameraMode, GraphicsQuality, TreeData, LogData, LooseLogData, BoulderData, Blueprint, PlacedStructure, ComboState, Notification, MobData, FoodData } from './types';
+import { audioService, AudioChannel, AudioSettings } from './services/audio';
 import { persistence, SaveData, SAVE_VERSION, sanitizeName } from './services/persistence';
 import { currentWoodchuckPos, liveObjects, playerState } from './globals';
 
@@ -57,6 +57,14 @@ export const CAMERA_ZOOM_MIN = 0.45;
 export const CAMERA_ZOOM_MAX = 2.2;
 const clampZoom = (z: number) => Math.max(CAMERA_ZOOM_MIN, Math.min(CAMERA_ZOOM_MAX, Number.isFinite(z) ? z : 1));
 
+// Graphics quality until the player picks one: phones/tablets Medium, computers High
+const defaultQuality = (): GraphicsQuality => {
+    try {
+        if (window.matchMedia('(pointer: coarse)').matches) return 'MEDIUM';
+    } catch { /* ignore */ }
+    return 'HIGH';
+};
+
 const newRunKey = () => `run-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 type Vec3 = [number, number, number];
@@ -70,6 +78,8 @@ interface GameState {
   phase: GamePhase;
   cameraMode: CameraMode;
   cameraZoom: number;
+  quality: GraphicsQuality;
+  audioSettings: AudioSettings;
   woodCount: number;
   score: number;
   totalLogsCollected: number;
@@ -197,6 +207,8 @@ interface GameState {
   checkCombo: () => void;
   cycleCameraMode: () => void;
   setCameraZoom: (zoom: number) => void;
+  setQuality: (quality: GraphicsQuality) => void;
+  setAudioChannel: (channel: AudioChannel, enabled: boolean) => void;
 }
 
 // =====================================================================
@@ -590,6 +602,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   placedStructures: [],
   cameraMode: 'BEHIND',
   cameraZoom: clampZoom(persistence.getCameraZoom()),
+  quality: persistence.getQuality() ?? defaultQuality(),
+  audioSettings: persistence.getAudioSettings(),
   isPlacementMode: false,
   isBuildMenuOpen: false,
   selectedBlueprintId: null,
@@ -710,6 +724,19 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (z === get().cameraZoom) return;
       set({ cameraZoom: z });
       persistence.setCameraZoom(z);
+  },
+
+  setQuality: (quality) => {
+      if (quality === get().quality) return;
+      set({ quality });
+      persistence.setQuality(quality);
+  },
+
+  setAudioChannel: (channel, enabled) => {
+      const audioSettings = { ...get().audioSettings, [channel]: enabled };
+      set({ audioSettings });
+      persistence.setAudioSettings(audioSettings);
+      audioService.setChannelEnabled(channel, enabled);
   },
 
   addWood: () => set((state) => ({ woodCount: state.woodCount + 1 })),
@@ -1389,3 +1416,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       return { combo: { ...state.combo, active: false, multiplier: 1, logsSinceLastLevel: 0 } };
   })
 }));
+
+// Apply this device's saved sound settings once at start-up
+audioService.applySettings(useGameStore.getState().audioSettings);

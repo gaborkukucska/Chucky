@@ -1,5 +1,6 @@
 export type GamePhase = 'START' | 'PLAYING' | 'GAMEOVER';
 export type CameraMode = 'FOLLOW' | 'TOP_DOWN' | 'BEHIND' | 'CINEMATIC';
+export type GraphicsQuality = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export interface Position {
   x: number;

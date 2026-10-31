@@ -4,6 +4,8 @@ import { Controls } from './components/Controls';
 import { useGameStore, isNightTime, BERRIES_FOR_ZOOMIES, getComboDeadline, getComboWindow, COMBO_LOGS_PER_LEVEL, COMBO_MAX_MULTIPLIER } from './store';
 import { audioService } from './services/audio';
 import { persistence, SaveSlotInfo, LeaderboardEntry, SAVE_SLOTS } from './services/persistence';
+import type { AudioChannel } from './services/audio';
+import type { GraphicsQuality } from './types';
 
 // =====================================================================
 // Error boundary
@@ -564,9 +566,81 @@ const Panel = ({ title, children, onBack }: { title: string; children: ReactNode
 );
 
 // =====================================================================
+// Settings: graphics quality + sound channels (saved on this device)
+// =====================================================================
+const QUALITY_OPTIONS: { id: GraphicsQuality; label: string; hint: string }[] = [
+    { id: 'LOW', label: 'Low', hint: 'Smoothest on older phones: grass close by only, simple shadows, no clouds.' },
+    { id: 'MEDIUM', label: 'Medium', hint: 'Balanced: grass around Chucky, medium shadows, slightly sharper picture.' },
+    { id: 'HIGH', label: 'High', hint: 'Best looking: most grass, sharpest shadows and picture. Needs a fast device.' },
+];
+
+const SOUND_OPTIONS: { id: AudioChannel; label: string; hint: string }[] = [
+    { id: 'music', label: '🎵 Music', hint: 'The jazzy background tune' },
+    { id: 'environment', label: '🌲 Environment', hint: 'River, wind, birds by day, crickets at night' },
+    { id: 'sfx', label: '🔊 Sound effects', hint: 'Chomps, pickups, level-ups, building' },
+];
+
+const Toggle = ({ on, label, hint, onChange }: { on: boolean; label: string; hint: string; onChange: (on: boolean) => void }) => (
+    <button
+        role="switch"
+        aria-checked={on}
+        onClick={() => onChange(!on)}
+        className="w-full flex items-center justify-between gap-3 py-2 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left transition-colors"
+    >
+        <span className="min-w-0">
+            <span className="block text-sm font-bold">{label}</span>
+            <span className="block text-[10px] text-white/50">{hint}</span>
+        </span>
+        <span className={`relative shrink-0 w-10 h-6 rounded-full transition-colors ${on ? 'bg-amber-500' : 'bg-white/20'}`}>
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
+        </span>
+    </button>
+);
+
+const SettingsPanel = () => {
+    const quality = useGameStore(state => state.quality);
+    const setQuality = useGameStore(state => state.setQuality);
+    const audioSettings = useGameStore(state => state.audioSettings);
+    const setAudioChannel = useGameStore(state => state.setAudioChannel);
+    const selected = QUALITY_OPTIONS.find(o => o.id === quality) || QUALITY_OPTIONS[1];
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <div className="text-[10px] uppercase tracking-wider text-white/50 font-bold mb-1.5">Graphics</div>
+                <div className="grid grid-cols-3 gap-1.5">
+                    {QUALITY_OPTIONS.map(o => (
+                        <button
+                            key={o.id}
+                            aria-pressed={quality === o.id}
+                            onClick={() => setQuality(o.id)}
+                            className={`py-2 rounded-xl border text-sm font-bold transition-all active:scale-95 ${quality === o.id
+                                ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-amber-300/40 text-white'
+                                : 'bg-white/10 hover:bg-white/20 border-white/15 text-white/80'}`}
+                        >
+                            {o.label}
+                        </button>
+                    ))}
+                </div>
+                <p className="text-[10px] text-white/50 mt-1.5">{selected.hint}</p>
+            </div>
+            <div>
+                <div className="text-[10px] uppercase tracking-wider text-white/50 font-bold mb-1.5">Sound</div>
+                <div className="space-y-1.5">
+                    {SOUND_OPTIONS.map(o => (
+                        <Toggle key={o.id} on={audioSettings[o.id]} label={o.label} hint={o.hint} onChange={(on) => setAudioChannel(o.id, on)} />
+                    ))}
+                </div>
+            </div>
+            <p className="text-[10px] text-white/40">Settings are saved on this device.</p>
+        </div>
+    );
+};
+
+// =====================================================================
 // In-game menu (pauses the game)
 // =====================================================================
-type MenuView = 'main' | 'save' | 'load' | 'leaderboard' | 'confirmNew';
+type MenuView = 'main' | 'save' | 'load' | 'leaderboard' | 'settings' | 'confirmNew';
 
 const GameMenu = () => {
     const closeGameMenu = useGameStore(state => state.closeGameMenu);
@@ -587,6 +661,7 @@ const GameMenu = () => {
                         <MenuButton onClick={() => setView('save')}>💾 Save Game</MenuButton>
                         <MenuButton onClick={() => setView('load')}>📂 Load Game</MenuButton>
                         <MenuButton onClick={() => setView('leaderboard')}>🏆 Leaderboard</MenuButton>
+                        <MenuButton onClick={() => setView('settings')}>⚙️ Settings</MenuButton>
                         <MenuButton variant="danger" onClick={() => setView('confirmNew')}>🌱 New Game</MenuButton>
                     </div>
                 </Panel>
@@ -606,6 +681,11 @@ const GameMenu = () => {
                     <NameEditor />
                     <LeaderboardTable highlightId={runKey} />
                     <p className="text-[10px] text-white/50 mt-2">Your current run updates automatically.</p>
+                </Panel>
+            )}
+            {view === 'settings' && (
+                <Panel title="Settings" onBack={() => setView('main')}>
+                    <SettingsPanel />
                 </Panel>
             )}
             {view === 'confirmNew' && (
@@ -636,7 +716,7 @@ const BuildMenuOverlay = () => {
 // =====================================================================
 const StartScreen = () => {
     const startGame = useGameStore(state => state.startGame);
-    const [view, setView] = useState<'main' | 'load' | 'leaderboard'>('main');
+    const [view, setView] = useState<'main' | 'load' | 'leaderboard' | 'settings'>('main');
     const hasSaves = persistence.listSlots().some(s => s !== null);
 
     if (view === 'load') {
@@ -650,6 +730,13 @@ const StartScreen = () => {
         return (
             <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
                 <Panel title="Leaderboard" onBack={() => setView('main')}><LeaderboardTable /></Panel>
+            </div>
+        );
+    }
+    if (view === 'settings') {
+        return (
+            <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+                <Panel title="Settings" onBack={() => setView('main')}><SettingsPanel /></Panel>
             </div>
         );
     }
@@ -677,6 +764,7 @@ const StartScreen = () => {
                     <MenuButton onClick={() => setView('load')} disabled={!hasSaves}>📂 Load</MenuButton>
                     <MenuButton onClick={() => setView('leaderboard')}>🏆 Scores</MenuButton>
                 </div>
+                <MenuButton onClick={() => setView('settings')}>⚙️ Settings</MenuButton>
             </div>
         </div>
     );

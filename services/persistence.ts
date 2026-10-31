@@ -3,7 +3,8 @@
 // device/browser. All access is wrapped in try/catch: private browsing, blocked
 // storage or a full quota must never crash the game.
 
-import { PlacedStructure, CameraMode } from '../types';
+import { PlacedStructure, CameraMode, GraphicsQuality } from '../types';
+import type { AudioSettings } from './audio';
 
 export const SAVE_VERSION = 1;
 export const SAVE_SLOTS = 3;
@@ -17,6 +18,8 @@ const LEADERBOARD_API = '/api/leaderboard';
 const API_TIMEOUT_MS = 4000;
 const NAME_KEY = 'chucky.playerName';
 const ZOOM_KEY = 'chucky.cameraZoom';
+const QUALITY_KEY = 'chucky.quality';
+const AUDIO_KEY = 'chucky.audio';
 
 type Vec3 = [number, number, number];
 
@@ -236,6 +239,34 @@ export const persistence = {
 
     setCameraZoom: (zoom: number) => {
         try { window.localStorage.setItem(ZOOM_KEY, String(Math.round(zoom * 100) / 100)); } catch { /* ignore */ }
+    },
+
+    // --- Graphics quality (per device); null = never chosen ---
+    getQuality: (): GraphicsQuality | null => {
+        try {
+            const v = window.localStorage.getItem(QUALITY_KEY);
+            return v === 'LOW' || v === 'MEDIUM' || v === 'HIGH' ? v : null;
+        } catch {
+            return null;
+        }
+    },
+
+    setQuality: (quality: GraphicsQuality) => {
+        try { window.localStorage.setItem(QUALITY_KEY, quality); } catch { /* ignore */ }
+    },
+
+    // --- Sound settings (per device); everything on by default ---
+    getAudioSettings: (): AudioSettings => {
+        const saved = readJson<Partial<AudioSettings>>(AUDIO_KEY) || {};
+        return {
+            music: saved.music !== false,
+            environment: saved.environment !== false,
+            sfx: saved.sfx !== false,
+        };
+    },
+
+    setAudioSettings: (settings: AudioSettings) => {
+        writeJson(AUDIO_KEY, settings);
     },
 
     // --- Player name ---

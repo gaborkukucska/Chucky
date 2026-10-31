@@ -21,6 +21,7 @@ Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you
 
   A zoom slider on the right edge of the screen moves the camera in and out.
 - **Save and load**: Three save slots on each device, from the in-game menu.
+- **Settings**: Choose Low, Medium or High graphics quality, and switch music, environment sounds (river, wind, birds, crickets) and sound effects on or off separately.
 - **Live, shared leaderboard**: Your current run updates the leaderboard as you play. Every device that plays from the same server (your laptop and phones on the same Wi-Fi) shares one board.
 - **Mobile first**: Touch joystick, a dive button for the left thumb and a compact HUD. Keyboard and mouse also work.
 
@@ -92,6 +93,8 @@ If you run the server directly on your phone with Termux:
 4. **Eat**: apples heal 20 and berries heal 10 (up to 200% health). Every 3rd berry gives you Zoomies.
 5. **Survive the night**: wolves and bears hurt. Stay clear, or head for the water.
 
+If the game runs slowly on your phone, open ☰ → ⚙️ Settings and pick **Low** graphics. Settings is also on the start screen.
+
 Your score unlocks bigger blueprints. The run lasts until your health runs out. Your score is on the leaderboard the whole time, so you don't have to finish a game for it to count.
 
 ## 🕹️ Controls
@@ -106,7 +109,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | **🏗️ / ✅ / 💥** (top right) | Opens the build menu. Becomes ✅ to **place** while building. Next to a structure it becomes 💥: **hold** it to demolish (you get 80% of the logs back). |
 | **✖️** | Stop building. |
 | **📷** | Switch the camera: 3rd person → Overview → Top-down → Cinematic. |
-| **☰** | Menu: Resume, Save, Load, Leaderboard, New game. Opening it pauses the game. |
+| **☰** | Menu: Resume, Save, Load, Leaderboard, Settings, New game. Opening it pauses the game. |
 | **↺ / ↻** (while building) | Rotate the structure. |
 
 ### Keyboard & mouse
@@ -137,11 +140,12 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 |---|---|
 | `store.ts` | All game state and rules (Zustand): world generation, chomping, logs, combos, power-ups, building, demolition, saving and loading, leaderboard sync, camera mode and zoom. Gameplay tuning constants are at the top of the file. |
 | `components/Woodchuck.tsx` | The player: movement, collisions, swimming and diving, chomping, the placement preview, and the model. |
-| `components/Game3D.tsx` | The scene: canvas, cameras, day/night lighting, time and destruction managers, food, mobs, grass. |
+| `components/Game3D.tsx` | The scene: canvas, cameras, day/night lighting, time and destruction managers, food, mobs, grass, graphics quality, environment-sound updates. |
 | `components/WorldObjects.tsx` | Trees, boulders, loose logs (debris bundles), placed structures (instanced) and the placement preview. |
 | `components/Controls.tsx` | Joystick, dive button, zoom slider, top-right buttons and keyboard/mouse input. It writes to `window.woodchuckInput`. |
-| `App.tsx` | HUD, combo display, power-up pills, notifications, build menu, placement panel, in-game menu, start and game-over screens, leaderboard. |
-| `services/persistence.ts` | localStorage saves (3 slots), player name, camera zoom, and the leaderboard client (shared API with a fallback to each device). |
+| `App.tsx` | HUD, combo display, power-up pills, notifications, build menu, placement panel, in-game menu, settings, start and game-over screens, leaderboard. |
+| `services/audio.ts` | Synthesized sound (no audio files) on three channels that can be muted separately: music, environment and sound effects. |
+| `services/persistence.ts` | localStorage saves (3 slots), player name, camera zoom, graphics quality, sound settings, and the leaderboard client (shared API with a fallback to each device). |
 | `server/leaderboardApi.ts` | Vite plugin: `GET` and `POST /api/leaderboard`, stored in `data/leaderboard.json`. |
 | `globals.ts` | Shared mutable values read every frame without causing re-renders: player position and facing, live log and fruit positions (used by saves). |
 
@@ -167,11 +171,26 @@ All distances are multiplied by `cameraZoom`, which runs from `CAMERA_ZOOM_MIN` 
 
 The chase cam needs steering controls. With controls relative to a camera that turns with Chucky, he would run in circles.
 
+### Graphics quality
+
+| Setting | Grass | Pixel ratio | Sun shadow map | Clouds |
+|---|---|---|---|---|
+| Low | 5×5 tiles (60 m), 1,125 blades | 1 | 512 | off |
+| Medium | 9×9 tiles (108 m), 4,860 blades | up to 1.5 | 1024 | on |
+| High | 11×11 tiles (132 m), 10,890 blades | up to 2 | 2048 | on |
+
+Phones and tablets start on Medium and computers on High, until the player picks a setting. Grass is only drawn in the tiles around Chucky (12 m each). When he walks into a new tile, only the row of tiles that came into range is rebuilt, and blades shrink into the ground near the edge. The sun's and moon's shadow maps are only re-rendered while that light is up.
+
+### Sound
+
+All sound is synthesized in `services/audio.ts` and mixed on three channels: **music**, **environment** and **sfx**. A muted channel stops scheduling sounds, so it costs nothing. The environment channel plays a river (louder near the water, muffled under it), wind, birds by day and crickets at night; `AmbientAudioManager` in `Game3D.tsx` updates it four times a second. Audio pauses while the tab or app is in the background.
+
 ### Useful tuning knobs
 
 - `store.ts` (top): tree and boulder counts, food drop chance, power-up durations, combo windows, unlock thresholds, build points, debris limits, leaderboard sync interval.
 - `Woodchuck.tsx` (top): walk and swim speed, acceleration, turn and steer rates, diving and breath, chomp damage and reach, placement spacing.
-- `Game3D.tsx`: `GRASS_COUNT` (40,000 grass blades; lower it if an older phone struggles) and the camera constants (`CHASE`, `OVERVIEW`, `TOP_DOWN_VIEW`, `CINEMATIC_VIEW`).
+- `Game3D.tsx`: `QUALITY_SETTINGS` and `GRASS_QUALITY` (what each graphics setting does), `GRASS_TILE`, and the camera constants (`CHASE`, `OVERVIEW`, `TOP_DOWN_VIEW`, `CINEMATIC_VIEW`).
+- `services/audio.ts` (top): river, wind and underwater sound levels.
 
 ### Checking your changes
 

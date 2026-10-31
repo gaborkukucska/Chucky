@@ -2,9 +2,32 @@
 
 All notable changes to Woodchuck Dam Builder 3000 (*Chucky*). Newest first.
 
-## 2026-10-31: Regression fixes and new features (rounds 1–5)
+## 2026-10-31: Regression fixes and new features (rounds 1–6)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 6: Grass near Chucky, graphics quality, sound settings
+
+**Grass only around Chucky.** Before, 40,000 grass blades were scattered over the whole map and all of them were drawn every frame.
+- Grass is now drawn only in a window of 12 m tiles around Chucky.
+- Each tile's blades come from the tile's coordinates, so you see the same grass when you come back.
+- When Chucky walks into a new tile, only the row of tiles that came into range is rebuilt and uploaded to the GPU.
+- Blades shrink into the ground near the edge of the window, so there's no visible border.
+- Blades now stand on the ground; before, short ones floated and tall ones were partly buried.
+
+**Graphics quality** (☰ → ⚙️ Settings, or on the start screen). Phones and tablets default to Medium and computers to High, until the player picks one; the choice is saved on the device.
+- **Low**: 1,125 grass blades (out to about 24 m), pixel ratio 1, 512 shadow map, no clouds.
+- **Medium**: 4,860 blades (about the old density, out to about 48 m), pixel ratio up to 1.5, 1024 shadow map.
+- **High**: 10,890 blades (denser, out to about 60 m), pixel ratio up to 2, 2048 shadow map.
+- Changes apply immediately. Before, phones with sharp screens drew at 2x pixel ratio.
+
+**Shadows.** The sun's and moon's shadow maps were both re-rendered every frame. Now each is only rendered while its light is up, which saves a whole shadow pass at any time of day.
+
+**Sound settings.** Music, environment and sound effects can each be switched on or off. The settings are saved on the device, and a muted channel costs no CPU.
+- **New environment sounds**: a river that gets louder near the water and is muffled under it, gentle wind, birds by day and crickets at night.
+- **Fixes**: the volume control wasn't actually connected (every sound went straight to the speakers). The music could start twice and could never be stopped. Sounds scheduled while the tab was in the background burst out on return; audio now pauses in the background.
+
+Files: `services/audio.ts` (rewritten), `types.ts`, `services/persistence.ts`, `store.ts`, `components/Game3D.tsx`, `App.tsx`, `README.md`, `CHANGELOG.md`.
 
 ### Round 5: Cameras, zoom slider, documentation
 
