@@ -30,6 +30,7 @@ export interface LooseLogData {
   rotation: [number, number, number];
   createdAt: number;
   settled?: boolean; // Restored from a save: no spawn "pop", keep the resting position
+  value?: number;    // Logs this pickup is worth (demolition debris is bundled). Default 1
 }
 
 export interface BoulderData {

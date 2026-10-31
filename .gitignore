@@ -24,6 +24,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Shared leaderboard written by the dev server (server/leaderboardApi.ts)
+data/
 *.py
 scripts
 package-lock.json

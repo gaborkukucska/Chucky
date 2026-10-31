@@ -12,6 +12,9 @@ const MAX_NAME_LENGTH = 16;
 
 const slotKey = (slot: number) => `chucky.save.v${SAVE_VERSION}.slot${slot}`;
 const LEADERBOARD_KEY = 'chucky.leaderboard.v1';
+const LEADERBOARD_MIGRATED_KEY = 'chucky.leaderboard.uploaded';
+const LEADERBOARD_API = '/api/leaderboard';
+const API_TIMEOUT_MS = 4000;
 const NAME_KEY = 'chucky.playerName';
 
 type Vec3 = [number, number, number];
@@ -32,7 +35,7 @@ export interface SaveData {
     trees: [number, 0 | 1][];          // [health, isFelled] - index-aligned with the seeded world
     unlockedBlueprints: boolean[];      // index-aligned with the seeded blueprints
     placedStructures: PlacedStructure[];
-    looseLogs: { position: Vec3; rotation: Vec3; age: number }[];
+    looseLogs: { position: Vec3; rotation: Vec3; age: number; value?: number }[];
     food: { position: Vec3; type: 'apple' | 'berry' }[];
     player: { position: Vec3; facing: number };
     powerups: { treeMs: number; logMs: number; speedMs: number };
@@ -97,6 +100,49 @@ const writeJson = (key: string, value: unknown): boolean => {
 export const sanitizeName = (name: string) =>
     (name || '').replace(/[^\p{L}\p{N} _\-.!]/gu, '').trim().slice(0, MAX_NAME_LENGTH) || 'Chucky';
 
+// Small JSON fetch helper with a timeout; resolves to null on any failure
+const apiRequest = async (method: 'GET' | 'POST', body?: unknown): Promise<any | null> => {
+    if (typeof fetch === 'undefined') return null;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), API_TIMEOUT_MS) : null;
+    try {
+        const res = await fetch(LEADERBOARD_API, {
+            method,
+            headers: body ? { 'Content-Type': 'application/json' } : undefined,
+            body: body ? JSON.stringify(body) : undefined,
+            signal: controller?.signal,
+            cache: 'no-store',
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch {
+        return null;
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+};
+
+// First time this device reaches the shared board, upload its earlier local scores
+let uploadStarted = false;
+const uploadLocalScoresOnce = (serverEntries: LeaderboardEntry[]) => {
+    if (uploadStarted) return;
+    uploadStarted = true;
+    try {
+        if (window.localStorage.getItem(LEADERBOARD_MIGRATED_KEY)) return;
+    } catch {
+        return;
+    }
+    const known = new Set(serverEntries.map(e => e.id));
+    const local = persistence.getLeaderboard();
+    Promise.all(local
+        .map(e => ({ ...e, id: e.id || `legacy-${e.date}-${Math.floor(e.score)}` }))
+        .filter(e => !known.has(e.id))
+        .map(e => apiRequest('POST', e)))
+        .then(() => {
+            try { window.localStorage.setItem(LEADERBOARD_MIGRATED_KEY, '1'); } catch { /* ignore */ }
+        });
+};
+
 export const persistence = {
     isAvailable: (): boolean => getStorage() !== null,
 
@@ -150,6 +196,26 @@ export const persistence = {
         writeJson(LEADERBOARD_KEY, list);
         const idx = list.indexOf(clean);
         return idx === -1 ? -1 : idx + 1;
+    },
+
+    // --- Shared leaderboard (server/leaderboardApi.ts on the dev server) ---
+
+    /** Shared board if the server is reachable, otherwise this device's board. */
+    fetchSharedLeaderboard: async (): Promise<{ entries: LeaderboardEntry[]; shared: boolean }> => {
+        const res = await apiRequest('GET');
+        if (res && Array.isArray(res.entries)) {
+            uploadLocalScoresOnce(res.entries);
+            return { entries: res.entries, shared: true };
+        }
+        return { entries: persistence.getLeaderboard(), shared: false };
+    },
+
+    /** Saves the entry locally and on the shared board. Rank comes from the server when reachable. */
+    pushLeaderboardEntry: async (entry: LeaderboardEntry): Promise<{ rank: number; shared: boolean }> => {
+        const localRank = persistence.upsertLeaderboardEntry(entry);
+        const res = await apiRequest('POST', { ...entry, name: sanitizeName(entry.name) });
+        if (res && typeof res.rank === 'number') return { rank: res.rank, shared: true };
+        return { rank: localRank, shared: false };
     },
 
     clearLeaderboard: () => {

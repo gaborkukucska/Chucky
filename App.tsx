@@ -453,44 +453,66 @@ const SlotList = ({ mode, onDone }: { mode: 'save' | 'load'; onDone?: () => void
 
 const LeaderboardTable = ({ highlightId }: { highlightId?: string }) => {
     const [entries, setEntries] = useState<LeaderboardEntry[]>(() => persistence.getLeaderboard());
+    const [shared, setShared] = useState<boolean | null>(null);
 
-    // Refresh while open - the current run keeps updating its own entry
+    // Shared board from the server (all devices), refreshed while open; per-device fallback
     useEffect(() => {
-        const interval = setInterval(() => setEntries(persistence.getLeaderboard()), 2000);
-        return () => clearInterval(interval);
+        let alive = true;
+        const refresh = () => persistence.fetchSharedLeaderboard().then((result) => {
+            if (!alive) return;
+            setEntries(result.entries.slice(0, 10));
+            setShared(result.shared);
+        });
+        refresh();
+        const interval = setInterval(refresh, 3000);
+        return () => { alive = false; clearInterval(interval); };
     }, []);
 
+    const footer = shared === null ? null : (
+        <div className={`text-[10px] mt-1.5 ${shared ? 'text-emerald-300/80' : 'text-amber-300/80'}`}>
+            {shared ? '🌐 Shared by every device playing on this server' : '📱 This device only - score server not reachable'}
+        </div>
+    );
+
     if (entries.length === 0) {
-        return <div className="text-sm text-white/60 text-center py-6">No scores yet - be the first chomper on the board!</div>;
+        return (
+            <div>
+                <div className="text-sm text-white/60 text-center py-6">No scores yet - be the first chomper on the board!</div>
+                {footer}
+            </div>
+        );
     }
 
     return (
-        <div className="max-h-[45vh] overflow-y-auto rounded-xl border border-white/10">
-            <table className="w-full text-xs text-white">
-                <thead className="bg-white/10 text-[10px] uppercase tracking-wider text-white/60 sticky top-0">
-                    <tr>
-                        <th className="py-1.5 px-2 text-left">#</th>
-                        <th className="py-1.5 px-2 text-left">Name</th>
-                        <th className="py-1.5 px-2 text-right">Score</th>
-                        <th className="py-1.5 px-2 text-right">Day</th>
-                        <th className="py-1.5 px-2 text-right">Logs</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {entries.map((e, i) => {
-                        const isCurrent = !!highlightId && e.id === highlightId;
-                        return (
-                            <tr key={e.id || `${e.date}-${i}`} className={`border-t border-white/5 ${isCurrent ? 'bg-amber-500/30 font-bold' : ''}`}>
-                                <td className="py-1.5 px-2">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</td>
-                                <td className="py-1.5 px-2 truncate max-w-[110px]">{e.name}{isCurrent && <span className="text-amber-300 text-[9px] ml-1">(this run)</span>}</td>
-                                <td className="py-1.5 px-2 text-right font-mono">{e.score.toLocaleString()}</td>
-                                <td className="py-1.5 px-2 text-right">{e.day}</td>
-                                <td className="py-1.5 px-2 text-right">{e.logs}</td>
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
+        <div>
+            <div className="max-h-[45vh] overflow-y-auto rounded-xl border border-white/10">
+                <table className="w-full text-xs text-white">
+                    <thead className="bg-white/10 text-[10px] uppercase tracking-wider text-white/60 sticky top-0">
+                        <tr>
+                            <th className="py-1.5 px-2 text-left">#</th>
+                            <th className="py-1.5 px-2 text-left">Name</th>
+                            <th className="py-1.5 px-2 text-right">Score</th>
+                            <th className="py-1.5 px-2 text-right">Day</th>
+                            <th className="py-1.5 px-2 text-right">Logs</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {entries.map((e, i) => {
+                            const isCurrent = !!highlightId && e.id === highlightId;
+                            return (
+                                <tr key={e.id || `${e.date}-${i}`} className={`border-t border-white/5 ${isCurrent ? 'bg-amber-500/30 font-bold' : ''}`}>
+                                    <td className="py-1.5 px-2">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</td>
+                                    <td className="py-1.5 px-2 truncate max-w-[110px]">{e.name}{isCurrent && <span className="text-amber-300 text-[9px] ml-1">(this run)</span>}</td>
+                                    <td className="py-1.5 px-2 text-right font-mono">{e.score.toLocaleString()}</td>
+                                    <td className="py-1.5 px-2 text-right">{e.day}</td>
+                                    <td className="py-1.5 px-2 text-right">{e.logs}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+            {footer}
         </div>
     );
 };
@@ -690,7 +712,7 @@ const GameOverScreen = () => {
                 <div className="text-amber-400 font-bold uppercase tracking-widest text-[10px]">Final Score</div>
                 <div className="text-5xl font-black text-white mb-1 drop-shadow-lg tracking-tight">{score.toLocaleString()}</div>
                 <div className="text-xs font-bold text-amber-300 mb-3">
-                    {score <= 0 ? 'Score some points to get on the leaderboard!' : leaderboardRank ? `#${leaderboardRank} on the leaderboard!` : 'Not quite top 10 this time.'}
+                    {score <= 0 ? 'Score some points to get on the leaderboard!' : leaderboardRank ? `#${leaderboardRank} on the leaderboard!` : 'Not on the leaderboard this time.'}
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-left">
                     <div className="bg-white/5 p-2 rounded-xl border border-white/5">

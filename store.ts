@@ -46,6 +46,12 @@ const LEADERBOARD_SYNC_INTERVAL = 2000;
 let lastLeaderboardSync = 0;
 let lastLeaderboardSig = '';
 
+// Demolition debris: at most this many physics logs; each carries a share of the logs returned
+const MAX_DEBRIS_PIECES = 12;
+const DEBRIS_STAGGER_MS = 60;
+// Hold-to-destroy time: 1.5s + 1s per 250 logs of blueprint, capped
+const MAX_DESTROY_SECONDS = 8;
+
 const newRunKey = () => `run-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 type Vec3 = [number, number, number];
@@ -454,7 +460,7 @@ const applyUnlocks = (blueprints: Blueprint[], totalLogs: number, score: number)
 // =====================================================================
 // Log collection (shared by loose logs and placed logs)
 // =====================================================================
-const applyLogCollected = (state: GameState): Partial<GameState> => {
+const applyLogCollected = (state: GameState, value = 1): Partial<GameState> => {
     const now = Date.now();
     audioService.playSuccess();
 
@@ -514,14 +520,15 @@ const applyLogCollected = (state: GameState): Partial<GameState> => {
         }
     }
 
-    // Update Total Logs & Milestones
-    const newTotalLogs = state.totalLogsCollected + 1;
-    if (newTotalLogs % 50 === 0) {
+    // Update Total Logs & Milestones (every 50 logs; a bundle can cross a milestone)
+    const newTotalLogs = state.totalLogsCollected + value;
+    const milestone = Math.floor(newTotalLogs / 50) * 50;
+    if (milestone > 0 && milestone > state.totalLogsCollected) {
         pointsGained += 10;
         notification = {
-            id: `log-milestone-${newTotalLogs}`,
+            id: `log-milestone-${milestone}`,
             title: "LOG MASTER!",
-            message: `Collected ${newTotalLogs} logs! +10 Points`,
+            message: `Collected ${milestone} logs! +10 Points`,
             type: 'achievement'
         };
         shouldPause = true;
@@ -534,7 +541,7 @@ const applyLogCollected = (state: GameState): Partial<GameState> => {
     }
 
     return {
-        woodCount: state.woodCount + (1 * newCombo.multiplier),
+        woodCount: state.woodCount + (value * newCombo.multiplier),
         score: unlocks.score,
         totalLogsCollected: newTotalLogs,
         combo: newCombo,
@@ -710,7 +717,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Invulnerability (0.5s)
       if (Date.now() - log.createdAt < 500) return state;
       return {
-          ...applyLogCollected(state),
+          ...applyLogCollected(state, log.value ?? 1),
           looseLogs: state.looseLogs.filter(l => l.id !== id)
       };
   }),
@@ -1009,7 +1016,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       const structure = state.placedStructures.find(s => s.id === state.destroyTargetId);
       if (!structure) return { isDestroying: false, destroyTargetId: null };
 
-      const damageRate = structure.maxHealth / (2.0 + (structure.maxHealth / 1000));
+      const destroyBlueprint = state.blueprints.find(b => b.id === structure.blueprintId);
+      const destroySeconds = Math.min(MAX_DESTROY_SECONDS, 1.5 + (destroyBlueprint ? destroyBlueprint.cost : 10) / 250);
+      const damageRate = structure.maxHealth / destroySeconds;
 
       const newHealth = Math.max(0, structure.health - damageRate * delta);
 
@@ -1017,13 +1026,17 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Destroyed!
           audioService.playChomp();
 
-          // Spawn 80% of logs
-          const blueprint = state.blueprints.find(b => b.id === structure.blueprintId);
-          const cost = blueprint ? blueprint.cost : 10;
-          const logsToSpawn = Math.floor(cost * 0.8);
+          // Return 80% of the logs as at most MAX_DEBRIS_PIECES physics pickups (bundles).
+          // Spawning one physics body per log froze phones for big structures.
+          const cost = destroyBlueprint ? destroyBlueprint.cost : 10;
+          const logsReturned = Math.floor(cost * 0.8);
+          const pieces = Math.min(MAX_DEBRIS_PIECES, logsReturned);
+          const now = Date.now();
 
           const newLooseLogs: LooseLogData[] = [];
-          for (let i = 0; i < logsToSpawn; i++) {
+          for (let i = 0; i < pieces; i++) {
+              // Spread the logs evenly over the pieces
+              const value = Math.floor(logsReturned / pieces) + (i < logsReturned % pieces ? 1 : 0);
               // Scatter around structure position
               const angle = Math.random() * Math.PI * 2;
               const dist = Math.random() * 4;
@@ -1032,10 +1045,11 @@ export const useGameStore = create<GameState>((set, get) => ({
               const lh = calculateTerrainHeight(lx, lz);
 
               newLooseLogs.push({
-                  id: `loose-struct-${structure.id}-${Date.now()}-${i}`,
-                  position: [lx, lh + 5 + Math.random() * 5, lz], // Drop from height
+                  id: `loose-struct-${structure.id}-${now}-${i}`,
+                  position: [lx, Math.max(lh, WATER_LEVEL) + 3 + Math.random() * 3, lz], // Drop from height
                   rotation: [Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI],
-                  createdAt: Date.now() + (i * 50)
+                  createdAt: now + (i * DEBRIS_STAGGER_MS),
+                  value
               });
           }
 
@@ -1122,7 +1136,8 @@ export const useGameStore = create<GameState>((set, get) => ({
               return {
                   position: roundVec(obj ? [obj.position.x, obj.position.y, obj.position.z] : l.position),
                   rotation: roundVec(obj ? [obj.rotation.x, obj.rotation.y, obj.rotation.z] : l.rotation),
-                  age: Math.max(0, ref - l.createdAt)
+                  age: Math.max(0, ref - l.createdAt),
+                  value: l.value ?? 1
               };
           }),
           food: s.food.map(f => {
@@ -1176,7 +1191,8 @@ export const useGameStore = create<GameState>((set, get) => ({
                   position: l.position,
                   rotation: l.rotation,
                   createdAt: now - l.age,
-                  settled: true
+                  settled: true,
+                  value: l.value ?? 1
               })),
               food: data.food.map((f, i) => ({
                   id: `food-${tag}-${i}`,
@@ -1253,17 +1269,21 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (!force && now - lastLeaderboardSync < LEADERBOARD_SYNC_INTERVAL) return;
       lastLeaderboardSync = now;
       lastLeaderboardSig = sig;
-      const rank = persistence.upsertLeaderboardEntry({
-          id: s.runKey,
+      const runKey = s.runKey;
+      persistence.pushLeaderboardEntry({
+          id: runKey,
           name: s.playerName,
           score: s.score,
           logs: s.totalLogsCollected,
           structures: s.placedStructures.length,
           day: s.day,
           date: now
+      }).then(({ rank }) => {
+          const current = get();
+          if (current.runKey !== runKey) return; // A new game started meanwhile
+          const newRank = rank > 0 ? rank : null;
+          if (newRank !== current.leaderboardRank) set({ leaderboardRank: newRank });
       });
-      const newRank = rank > 0 ? rank : null;
-      if (newRank !== s.leaderboardRank) set({ leaderboardRank: newRank });
   },
 
   startChompingSession: () => set((state) => {

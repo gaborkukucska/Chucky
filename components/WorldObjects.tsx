@@ -1,7 +1,6 @@
-import React, { useMemo, useRef, useEffect, forwardRef } from 'react';
+import React, { useMemo, useRef, useEffect, useLayoutEffect, forwardRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useSphere, useCylinder, useCompoundBody } from '@react-three/cannon';
-import { Edges } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore, getRiverWidth, calculateTerrainHeight, MAP_SIZE } from '../store';
 import { TreeData, LogData, LooseLogData, BoulderData, PlacedStructure, Blueprint } from '../types';
@@ -262,17 +261,24 @@ export const Log = React.memo(({ data }: { data: LogData }) => {
 });
 
 // A loose log floating down the river
+// Demolition debris comes as bundles worth several logs: a bit bigger, tied with twine
+const looseLogSize = (value: number) => value > 1 ? { radius: 0.45, length: 2.6, mass: 4 } : { radius: 0.3, length: 2, mass: 2 };
+
 export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
     const collectLooseLog = useGameStore(state => state.collectLooseLog);
     const expireLooseLog = useGameStore(state => state.expireLooseLog);
     const isPaused = useGameStore(state => state.isPaused);
     const collectedRef = useRef(false);
+    const value = data.value ?? 1;
+    const size = looseLogSize(value);
+    // Only send damping to the physics worker when it changes (was 2 messages per log per frame)
+    const dampingRef = useRef({ linear: -1, angular: -1 });
     
     const [ref, api] = useCylinder(() => ({
-        mass: 2, 
+        mass: size.mass, 
         position: data.position,
         rotation: data.rotation,
-        args: [0.3, 0.3, 2, 8],
+        args: [size.radius, size.radius, size.length, 8],
         linearDamping: 0.1, 
         angularDamping: 0.1,
         onCollide: (e) => {
@@ -293,7 +299,8 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
     // Helpers
     const helper = useMemo(() => ({
         up: new THREE.Vector3(0, 1, 0),
-        tempVec: new THREE.Vector3()
+        tempVec: new THREE.Vector3(),
+        localY: new THREE.Vector3()
     }), []);
 
     // Register the live body so a save captures its real position
@@ -323,6 +330,17 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
             (Math.random() - 0.5) * 20
         );
     }, [api]);
+
+    const setDamping = (linear: number, angular: number) => {
+        if (dampingRef.current.linear !== linear) {
+            dampingRef.current.linear = linear;
+            api.linearDamping.set(linear);
+        }
+        if (dampingRef.current.angular !== angular) {
+            dampingRef.current.angular = angular;
+            api.angularDamping.set(angular);
+        }
+    };
 
     useFrame((state) => {
         if (isPaused) {
@@ -463,13 +481,13 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                  const displacement = surfaceY - pos.y;
                  
                  const gravity = 20;
-                 const mass = 2; 
-                 // Force required to hold mass up = gravity * mass = 40.
+                 const mass = size.mass;
+                 // Force required to hold mass up = gravity * mass.
                  // High buoyancy factor for snappy surface return
                  const buoyancyFactor = 1000; // Even higher
                  
                  // Procedural bop function for surface floating
-                 const bop = Math.sin(state.clock.elapsedTime * 3 + pos.x * 0.5) * 8;
+                 const bop = Math.sin(state.clock.elapsedTime * 3 + pos.x * 0.5) * 4 * mass;
                  let uplift = (gravity * mass) + (displacement * buoyancyFactor) + bop;
                  
                  // If very deep, apply a strong upward impulse to "pop" it up
@@ -477,12 +495,11 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                     uplift *= 3.0;
                  }
 
-                 api.applyForce([0, uplift, 0], [pos.x, pos.y, pos.z]); 
-                 api.applyForce([0, 0, flowSpeed], [pos.x, pos.y, pos.z]);
+                 api.applyForce([0, uplift * (mass / 2), 0], [pos.x, pos.y, pos.z]); 
+                 api.applyForce([0, 0, flowSpeed * (mass / 2)], [pos.x, pos.y, pos.z]);
 
                  // Orientation Correction (Torque to Horizontal)
-                 const quaternion = new THREE.Quaternion().copy(mesh.quaternion);
-                 const localY = new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion);
+                 const localY = helper.localY.set(0, 1, 0).applyQuaternion(mesh.quaternion);
                  const alignment = localY.dot(helper.up); 
 
                  if (Math.abs(alignment) > 0.05) {
@@ -490,7 +507,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                     if (helper.tempVec.lengthSq() < 0.01) {
                          helper.tempVec.set(1, 0, 0); 
                     }
-                    const torqueStrength = 80 * Math.abs(alignment);
+                    const torqueStrength = 40 * mass * Math.abs(alignment);
                     api.applyTorque([
                         helper.tempVec.x * torqueStrength, 
                         0, 
@@ -499,9 +516,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                  }
 
                  // Adaptive damping: Very low when submerged
-                 const damping = displacement > 0.4 ? 0.1 : 0.6;
-                 api.linearDamping.set(damping); 
-                 api.angularDamping.set(0.3);
+                 setDamping(displacement > 0.4 ? 0.1 : 0.6, 0.3);
 
                  // Visual "Wet" look - Darker and shinier
                  if (matRef.current && isCollectable && age <= 110000) {
@@ -519,8 +534,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                     api.velocity.set(0, 0, 0);
                  }
                  
-                 api.linearDamping.set(0.1);
-                 api.angularDamping.set(0.1);
+                 setDamping(0.1, 0.1);
                  
                  // Normal wood look
                  if (matRef.current && isCollectable && age <= 110000) {
@@ -534,52 +548,150 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
         }
     });
 
+    const half = size.length / 2 + 0.01;
     return (
         <mesh ref={ref as any} castShadow receiveShadow>
-            <cylinderGeometry args={[0.3, 0.3, 2, 8]} />
+            <cylinderGeometry args={[size.radius, size.radius, size.length, 8]} />
             <meshStandardMaterial ref={matRef} color="#8D6E63" />
-            <mesh position={[0, 1.01, 0]} rotation={[Math.PI/2, 0, 0]}>
-                 <circleGeometry args={[0.3, 8]} />
+            <mesh position={[0, half, 0]} rotation={[Math.PI/2, 0, 0]}>
+                 <circleGeometry args={[size.radius, 8]} />
                  <meshStandardMaterial color="#A1887F" />
             </mesh>
-            <mesh position={[0, -1.01, 0]} rotation={[Math.PI/2, 0, 0]}>
-                 <circleGeometry args={[0.3, 8]} />
+            <mesh position={[0, -half, 0]} rotation={[Math.PI/2, 0, 0]}>
+                 <circleGeometry args={[size.radius, 8]} />
                  <meshStandardMaterial color="#A1887F" />
             </mesh>
+            {value > 1 && (
+                // Twine bands mark a bundle
+                <>
+                    <mesh position={[0, size.length * 0.25, 0]}>
+                        <cylinderGeometry args={[size.radius + 0.03, size.radius + 0.03, 0.18, 8]} />
+                        <meshStandardMaterial color="#D9B26F" />
+                    </mesh>
+                    <mesh position={[0, -size.length * 0.25, 0]}>
+                        <cylinderGeometry args={[size.radius + 0.03, size.radius + 0.03, 0.18, 8]} />
+                        <meshStandardMaterial color="#D9B26F" />
+                    </mesh>
+                </>
+            )}
         </mesh>
     );
 });
 
-export const StructureLog = ({ position, rotation }: { position: [number, number, number], rotation: [number, number, number] }) => {
+// =====================================================================
+// Placed structures
+// Rendering: ONE instanced draw call per structure (was 3 meshes per log -
+// a 3,840-log structure meant ~11,500 meshes). Shared geometry/materials.
+// Physics: cheap box shapes - one per log for small structures, one per
+// layer for big ones (was a convex cylinder per log, which choked the
+// physics worker). Chucky's own collision is handled in Woodchuck.tsx.
+// =====================================================================
+const STRUCTURE_LOG_RADIUS = 0.4;
+const STRUCTURE_LOG_LENGTH = 3;
+const PER_LOG_SHAPE_LIMIT = 24;   // Above this, approximate with one box per layer
+const LAYER_HEIGHT = 0.35;        // Matches the blueprint generator in store.ts
+
+// CylinderGeometry groups: 0 = side (bark), 1 = top cap, 2 = bottom cap (end grain)
+const STRUCTURE_LOG_GEOMETRY = new THREE.CylinderGeometry(STRUCTURE_LOG_RADIUS, STRUCTURE_LOG_RADIUS, STRUCTURE_LOG_LENGTH, 8);
+const BARK_MATERIAL = new THREE.MeshStandardMaterial({ color: '#5D4037' });
+const END_GRAIN_MATERIAL = new THREE.MeshStandardMaterial({ color: '#8D6E63' });
+const STRUCTURE_MATERIALS = [BARK_MATERIAL, END_GRAIN_MATERIAL, END_GRAIN_MATERIAL];
+const PREVIEW_VALID_MATERIAL = new THREE.MeshBasicMaterial({ color: '#00FFFF', transparent: true, opacity: 0.45, depthTest: false, depthWrite: false });
+const PREVIEW_INVALID_MATERIAL = new THREE.MeshBasicMaterial({ color: '#FF3B30', transparent: true, opacity: 0.45, depthTest: false, depthWrite: false });
+
+type BlueprintLog = Blueprint['logs'][number];
+
+// One InstancedMesh for a list of logs (shared geometry + material, never disposed by R3F)
+const InstancedLogs = ({ logs, material, castShadow = false, receiveShadow = false, renderOrder }: {
+    logs: BlueprintLog[];
+    material: THREE.Material | THREE.Material[];
+    castShadow?: boolean;
+    receiveShadow?: boolean;
+    renderOrder?: number;
+}) => {
+    const meshRef = useRef<THREE.InstancedMesh>(null);
+
+    useLayoutEffect(() => {
+        const mesh = meshRef.current;
+        if (!mesh) return;
+        const dummy = new THREE.Object3D();
+        logs.forEach((log, i) => {
+            dummy.position.set(log.position[0], log.position[1], log.position[2]);
+            dummy.rotation.set(log.rotation[0], log.rotation[1], log.rotation[2]);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.computeBoundingSphere(); // Correct frustum culling for the whole structure
+    }, [logs]);
+
     return (
-        <mesh position={position} rotation={rotation} castShadow receiveShadow>
-            <cylinderGeometry args={[0.4, 0.4, 3, 8]} />
-            <meshStandardMaterial color="#5D4037" />
-            <mesh position={[0, 1.51, 0]} rotation={[Math.PI/2, 0, 0]}>
-                 <circleGeometry args={[0.4, 8]} />
-                 <meshStandardMaterial color="#8D6E63" />
-            </mesh>
-            <mesh position={[0, -1.51, 0]} rotation={[Math.PI/2, 0, 0]}>
-                 <circleGeometry args={[0.4, 8]} />
-                 <meshStandardMaterial color="#8D6E63" />
-            </mesh>
-        </mesh>
-    )
-}
+        <instancedMesh
+            ref={meshRef}
+            args={[STRUCTURE_LOG_GEOMETRY, material as any, logs.length]}
+            castShadow={castShadow}
+            receiveShadow={receiveShadow}
+            renderOrder={renderOrder}
+            dispose={null}
+        />
+    );
+};
+
+// Physics shapes per blueprint (cached - blueprints never change within a world)
+const shapeCache = new WeakMap<Blueprint, any[]>();
+const _shapeEuler = new THREE.Euler();
+const _shapeQuat = new THREE.Quaternion();
+const _shapeAxis = new THREE.Vector3();
+
+const buildStructureShapes = (blueprint: Blueprint) => {
+    const cached = shapeCache.get(blueprint);
+    if (cached) return cached;
+
+    let shapes: any[];
+    if (blueprint.logs.length <= PER_LOG_SHAPE_LIMIT) {
+        // Small structures: one oriented box per log (logs are cylinders along local Y)
+        shapes = blueprint.logs.map(log => ({
+            type: 'Box',
+            position: log.position,
+            rotation: log.rotation,
+            args: [STRUCTURE_LOG_RADIUS * 2, STRUCTURE_LOG_LENGTH, STRUCTURE_LOG_RADIUS * 2]
+        }));
+    } else {
+        // Big structures: one axis-aligned box per layer covering that layer's logs
+        const layers = new Map<number, { minX: number; maxX: number; minZ: number; maxZ: number; sumY: number; n: number }>();
+        for (const log of blueprint.logs) {
+            _shapeQuat.setFromEuler(_shapeEuler.set(log.rotation[0], log.rotation[1], log.rotation[2]));
+            _shapeAxis.set(0, STRUCTURE_LOG_LENGTH / 2, 0).applyQuaternion(_shapeQuat);
+            const ex = Math.abs(_shapeAxis.x) + STRUCTURE_LOG_RADIUS;
+            const ez = Math.abs(_shapeAxis.z) + STRUCTURE_LOG_RADIUS;
+            const key = Math.round(log.position[1] / LAYER_HEIGHT);
+            const layer = layers.get(key) || { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity, sumY: 0, n: 0 };
+            layer.minX = Math.min(layer.minX, log.position[0] - ex);
+            layer.maxX = Math.max(layer.maxX, log.position[0] + ex);
+            layer.minZ = Math.min(layer.minZ, log.position[2] - ez);
+            layer.maxZ = Math.max(layer.maxZ, log.position[2] + ez);
+            layer.sumY += log.position[1];
+            layer.n += 1;
+            layers.set(key, layer);
+        }
+        shapes = Array.from(layers.values()).map(l => ({
+            type: 'Box',
+            position: [(l.minX + l.maxX) / 2, l.sumY / l.n, (l.minZ + l.maxZ) / 2],
+            rotation: [0, 0, 0],
+            args: [l.maxX - l.minX, STRUCTURE_LOG_RADIUS * 2, l.maxZ - l.minZ]
+        }));
+    }
+    shapeCache.set(blueprint, shapes);
+    return shapes;
+};
 
 export const PlacedStructureRenderer = React.memo(({ data, blueprints }: { data: PlacedStructure, blueprints: Blueprint[] }) => {
     const blueprint = blueprints.find(b => b.id === data.blueprintId);
     
-    const shapes = useMemo(() => {
-        if (!blueprint) return [];
-        return blueprint.logs.map(log => ({
-            type: 'Cylinder',
-            position: log.position,
-            rotation: log.rotation,
-            args: [0.4, 0.4, 3, 8]
-        }));
-    }, [blueprint]);
+    const shapes = useMemo(() => (blueprint ? buildStructureShapes(blueprint) : []), [blueprint]);
 
+    // A structure never moves or changes shape (only its health), so the body is created once.
+    // (The old code passed a deps array as the 2nd argument, which is actually the forwarded ref.)
     const [ref] = useCompoundBody(() => ({
         mass: 0, // Static
         type: 'Static',
@@ -588,16 +700,13 @@ export const PlacedStructureRenderer = React.memo(({ data, blueprints }: { data:
         // @ts-ignore
         shapes: shapes,
         userData: { tag: 'structure', id: data.id }
-    }), [data.position, data.rotation, shapes]);
+    }));
 
     if (!blueprint) return null;
 
-    // Visuals
     return (
         <group ref={ref as any}>
-            {blueprint.logs.map((log, i) => (
-                <StructureLog key={i} position={log.position} rotation={log.rotation} />
-            ))}
+            <InstancedLogs logs={blueprint.logs} material={STRUCTURE_MATERIALS} castShadow receiveShadow />
             {/* Health Bar Overlay if damaged */}
             {data.health < data.maxHealth && (
                 <mesh position={[0, 5, 0]}>
@@ -613,6 +722,7 @@ export const PlacedStructureRenderer = React.memo(({ data, blueprints }: { data:
     );
 });
 
+// Placement ghost: one instanced, see-through mesh (was a mesh + Edges outline per log)
 export const PreviewStructureOverlay = forwardRef<THREE.Group, { valid?: boolean }>(({ valid = true }, ref) => {
     const selectedBlueprintId = useGameStore(state => state.selectedBlueprintId);
     const blueprints = useGameStore(state => state.blueprints);
@@ -622,13 +732,7 @@ export const PreviewStructureOverlay = forwardRef<THREE.Group, { valid?: boolean
 
     return (
         <group ref={ref}>
-            {blueprint.logs.map((log, i) => (
-                <mesh key={i} position={log.position} rotation={log.rotation}>
-                    <cylinderGeometry args={[0.4, 0.4, 3, 8]} />
-                    <meshBasicMaterial color={valid ? "#00FFFF" : "#FF3B30"} transparent opacity={0.6} depthTest={false} depthWrite={false} />
-                    <Edges color="white" threshold={15} />
-                </mesh>
-            ))}
+            <InstancedLogs logs={blueprint.logs} material={valid ? PREVIEW_VALID_MATERIAL : PREVIEW_INVALID_MATERIAL} renderOrder={10} />
         </group>
     );
 });
