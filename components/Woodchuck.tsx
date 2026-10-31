@@ -7,6 +7,7 @@ import { useGameStore, getRiverX, getRiverWidth, calculateTerrainHeight, isNight
 import { currentWoodchuckPos, playerState } from '../globals';
 import { audioService } from '../services/audio';
 import { PreviewStructureOverlay } from './WorldObjects';
+import { canDemolish, TEAM_INFO, Team } from '../services/multiplayer';
 import { TreeData, PlacedStructure, Blueprint } from '../types';
 
 // =====================================================================
@@ -25,6 +26,7 @@ const RIVER_DRIFT = 0.35;    // Fraction of the river flow applied while swimmin
 const TURN_RATE = 10;        // 1/s - how quickly the model turns to face the movement direction
 const STEER_RATE = 1.8;      // rad/s - max turning speed in the 3rd-person camera (only used there)
 const BACKWARD_SPEED = 0.5;  // Walking backwards (3rd-person camera) is slower
+const NO_INPUT = { x: 0, y: 0, isBuilding: false, dive: false }; // Knocked out (joint games)
 const VERTICAL_SMOOTHING = 15; // 1/s - terrain following / bobbing smoothing
 const MAP_LIMIT = 145;
 const MAX_FRAME_DELTA = 0.1;   // Clamp long frames (tab switch, GC hitch) to avoid teleporting
@@ -155,6 +157,7 @@ export const Woodchuck = () => {
     const isNight = useGameStore(state => isNightTime(state.timeOfDay));
     const lastChompTime = useGameStore(state => state.lastChompTime);
     const isSpeedPowerupActive = useGameStore(state => state.isSpeedPowerupActive);
+    const mpTeam = useGameStore(state => (state.mp.status === 'playing' ? state.mp.team : null));
 
     // Kinematic body: we drive it, it pushes logs/food/mobs. It does not
     // collide with static bodies, so trees/boulders/structures are resolved manually.
@@ -258,8 +261,15 @@ export const Woodchuck = () => {
             return;
         }
 
+        // Joint games: knocked out - lie still, then get up at the river bank
+        const knockedOut = s.koUntil > 0;
+        if (knockedOut && Date.now() >= s.koUntil) {
+            s.mpRespawn();
+            return;
+        }
+
         // @ts-ignore
-        const input = window.woodchuckInput || { x: 0, y: 0, isBuilding: false };
+        const input = knockedOut ? NO_INPUT : (window.woodchuckInput || { x: 0, y: 0, isBuilding: false });
         // --- Input -> movement direction ---
         // 3rd-person (BEHIND) camera: the stick STEERS - left/right turns Chucky, up/down walks along
         // his facing. (Camera-relative input with a camera that follows his facing makes him spin.)
@@ -334,6 +344,13 @@ export const Woodchuck = () => {
         const blend = 1 - Math.exp(-rate * delta);
         velocity.current.x += (targetVx - velocity.current.x) * blend;
         velocity.current.z += (targetVz - velocity.current.z) * blend;
+        // Knock-back from another player's thrown log
+        if (playerState.impulseX || playerState.impulseZ) {
+            velocity.current.x += playerState.impulseX;
+            velocity.current.z += playerState.impulseZ;
+            playerState.impulseX = 0;
+            playerState.impulseZ = 0;
+        }
 
         let nextX = x + velocity.current.x * delta;
         let nextZ = z + velocity.current.z * delta;
@@ -417,7 +434,8 @@ export const Woodchuck = () => {
                 }
                 structDist = Math.min(structDist, d);
             }
-            if (structDist < nearestStructDist) {
+            // Only structures this player may demolish (joint games: own or own team's)
+            if (structDist < nearestStructDist && canDemolish(ps)) {
                 nearestStructDist = structDist;
                 nearestStructId = ps.id;
             }
@@ -531,7 +549,7 @@ export const Woodchuck = () => {
 
         // --- Chomping (restored: this damage call was lost in the March refactor) ---
         let chomped = false;
-        if (!s.isPlacementMode) {
+        if (!s.isPlacementMode && !knockedOut) {
             if (s.isTreePowerupActive) {
                 // Mega Chomp: every standing tree in range, nearest damaged last so it's the one shown in the UI
                 const inRange: { tree: TreeData; d: number }[] = [];
@@ -587,6 +605,9 @@ export const Woodchuck = () => {
             const divePitch = isDiving.current && y > bedY + 0.05 ? 0.45 : (!isDiving.current && y < SURFACE_Y - 0.1 ? -0.35 : 0);
             const targetPitch = isSwimming ? Math.PI / 2 + divePitch : 0;
             bodyRef.current.rotation.x += (targetPitch - bodyRef.current.rotation.x) * (1 - Math.exp(-10 * delta));
+            // Knocked out: lying on its side
+            const targetRoll = knockedOut ? Math.PI / 2 : 0;
+            bodyRef.current.rotation.z += (targetRoll - bodyRef.current.rotation.z) * (1 - Math.exp(-10 * delta));
         }
         if (headRef.current) {
             // Chomp nod
@@ -620,6 +641,13 @@ export const Woodchuck = () => {
                         <capsuleGeometry args={[0.5, 1, 4, 8]} />
                         <meshStandardMaterial color={furColor} />
                     </mesh>
+                    {mpTeam && (
+                        // Team scarf (joint games)
+                        <mesh position={[0, 0.5, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                            <torusGeometry args={[0.42, 0.09, 8, 20]} />
+                            <meshStandardMaterial color={TEAM_INFO[mpTeam as Team].color} />
+                        </mesh>
+                    )}
                     <group ref={headRef} position={[0, 0.6, 0]}>
                         <mesh position={[0, 0.2, 0]} castShadow>
                             <sphereGeometry args={[0.4, 16, 16]} />

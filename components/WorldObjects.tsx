@@ -4,7 +4,8 @@ import { useSphere, useCylinder, useCompoundBody } from '@react-three/cannon';
 import * as THREE from 'three';
 import { useGameStore, getRiverWidth, calculateTerrainHeight, MAP_SIZE } from '../store';
 import { TreeData, LogData, LooseLogData, BoulderData, PlacedStructure, Blueprint } from '../types';
-import { currentWoodchuckPos, liveObjects, readBodyPosition } from '../globals';
+import { currentWoodchuckPos, liveObjects, readBodyPosition, readBodyTransform } from '../globals';
+import { multiplayer, logCorrections, outgoingLogPositions } from '../services/multiplayer';
 import { audioService } from '../services/audio';
 
 const WATER_LEVEL = -1.5;
@@ -17,6 +18,10 @@ const THROWN_HIT_SPEED = 6;         // m/s - slower than this it's just rolling
 const THROWN_HIT_RADIUS = 1.2;      // m sideways from the target's centre
 const THROWN_HIT_BELOW = 1.2;       // m below the target's centre ...
 const THROWN_HIT_ABOVE = 2.0;       // ... to m above it (targets are treated as tall)
+// Joint games: owners report moved logs; others snap a log back if it's this far off
+const LOG_REPORT_INTERVAL_MS = 250;
+const LOG_REPORT_MAX_AGE_MS = 90000;
+const LOG_CORRECTION_DIST_SQ = 0.75 * 0.75;
 // Does the log's path this frame (a -> b) pass through a target at p? Checked along the
 // whole segment, so a fast log can't skip past a target between two frames.
 export const thrownPathHits = (px: number, py: number, pz: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
@@ -293,6 +298,13 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
     const thrown = !!data.thrown;
     // Thrown logs: last position (for speed) and whether it already hit something
     const flight = useRef({ x: NaN, y: 0, z: 0, hit: false });
+    // Joint games: last position we reported for a log we own
+    const report = useRef({ at: 0, x: NaN, y: 0, z: 0 });
+    // Pick it up: straight away in a solo game; in a joint game ask the server (first come, first served)
+    const pickUp = () => {
+        if (multiplayer.active) multiplayer.take('log', data.id);
+        else collectLooseLog(data.id);
+    };
     // Only send damping to the physics worker when it changes (was 2 messages per log per frame)
     const dampingRef = useRef({ linear: -1, angular: -1 });
     
@@ -308,7 +320,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                 const age = Date.now() - data.createdAt;
                 if (age > 2500 && !collectedRef.current) {
                     collectedRef.current = true;
-                    collectLooseLog(data.id);
+                    pickUp();
                 }
             }
         }
@@ -324,7 +336,9 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
         tempVec: new THREE.Vector3(),
         localY: new THREE.Vector3(),
         livePos: new THREE.Vector3(),
-        mobPos: new THREE.Vector3()
+        mobPos: new THREE.Vector3(),
+        reportPos: new THREE.Vector3(),
+        reportQuat: new THREE.Quaternion()
     }), []);
 
     // Register the live body so a save captures its real position
@@ -419,11 +433,58 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                                 break;
                             }
                         }
+                        // Joint games: another player's throw hitting us (each player checks their own Chucky)
+                        if (!f.hit && data.thrownBy && multiplayer.active && data.thrownBy !== multiplayer.myId) {
+                            const me = currentWoodchuckPos;
+                            if (thrownPathHits(me.x, me.y, me.z, f.x, f.y, f.z, pos.x, pos.y, pos.z)) {
+                                f.hit = true;
+                                if (data.team && data.team !== 'solo' && data.team === multiplayer.team) {
+                                    // A team mate's log: catch it
+                                    collectedRef.current = true;
+                                    multiplayer.take('log', data.id, true);
+                                } else {
+                                    const h = Math.hypot(vx, vz) || 1;
+                                    useGameStore.getState().takeThrowHit(data.thrownBy, vx / h, vz / h);
+                                    audioService.playHit();
+                                    api.velocity.set(vx * 0.15, Math.max(vy, 2), vz * 0.15);
+                                }
+                            }
+                        }
                     }
                 }
                 f.x = pos.x;
                 f.y = pos.y;
                 f.z = pos.z;
+            }
+
+            // Joint games: the owner reports where its logs are; everyone else snaps a log back
+            // when it's clearly somewhere else (physics differs a little between devices)
+            if (data.owner && multiplayer.active) {
+                if (data.owner === multiplayer.myId) {
+                    const r = report.current;
+                    const moved = Number.isNaN(r.x) || Math.abs(pos.x - r.x) + Math.abs(pos.y - r.y) + Math.abs(pos.z - r.z) > 0.05;
+                    if (moved && now - r.at >= LOG_REPORT_INTERVAL_MS && age < LOG_REPORT_MAX_AGE_MS) {
+                        readBodyTransform(mesh, helper.reportPos, helper.reportQuat);
+                        const q = helper.reportQuat;
+                        outgoingLogPositions.set(data.id, [pos.x, pos.y, pos.z, q.x, q.y, q.z, q.w]);
+                        r.at = now;
+                        r.x = pos.x;
+                        r.y = pos.y;
+                        r.z = pos.z;
+                    }
+                } else {
+                    const c = logCorrections.get(data.id);
+                    if (c) {
+                        logCorrections.delete(data.id);
+                        const dx = c[0] - pos.x, dy = c[1] - pos.y, dz = c[2] - pos.z;
+                        if (dx * dx + dy * dy + dz * dz > LOG_CORRECTION_DIST_SQ) {
+                            api.position.set(c[0], c[1], c[2]);
+                            api.quaternion.set(c[3], c[4], c[5], c[6]);
+                            api.velocity.set(0, 0, 0);
+                            api.angularVelocity.set(0, 0, 0);
+                        }
+                    }
+                }
             }
 
             // Proximity pick-up
@@ -433,7 +494,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                 const pdz = currentWoodchuckPos.z - pos.z;
                 if (pdx * pdx + pdy * pdy + pdz * pdz < PICKUP_RADIUS_SQ) {
                     collectedRef.current = true;
-                    collectLooseLog(data.id);
+                    pickUp();
                     return;
                 }
             }
@@ -490,7 +551,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                     
                     if (elapsed > 1.0) {
                         collectedRef.current = true;
-                        collectLooseLog(data.id);
+                        pickUp();
                     }
                 } else {
                     magnetizedStartRef.current = null;

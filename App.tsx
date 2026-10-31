@@ -6,6 +6,7 @@ import { audioService } from './services/audio';
 import { persistence, SaveSlotInfo, LeaderboardEntry, SAVE_SLOTS } from './services/persistence';
 import type { AudioChannel } from './services/audio';
 import type { GraphicsQuality } from './types';
+import { multiplayer, TEAMS, TEAM_INFO, Team } from './services/multiplayer';
 
 // =====================================================================
 // Error boundary
@@ -143,6 +144,8 @@ const Hud = () => {
     const isNight = useGameStore(state => isNightTime(state.timeOfDay));
     const berriesEaten = useGameStore(state => state.berriesEaten);
     const breath = useGameStore(state => state.breath);
+    const mpCode = useGameStore(state => (state.mp.status === 'playing' ? state.mp.code : ''));
+    const mpCount = useGameStore(state => Object.keys(state.mp.players).length + 1);
     const activeTree = useGameStore(state =>
         state.activeTreeId ? (state.trees.find(t => t.id === state.activeTreeId) ?? null) : null
     );
@@ -168,6 +171,13 @@ const Hud = () => {
                     <span>{isNight ? '🌙' : '☀️'} Day {day}</span>
                     <span title="Berries towards Zoomies">🫐 {berriesEaten}/{BERRIES_FOR_ZOOMIES}</span>
                 </div>
+                {/* Joint game: room code + players */}
+                {mpCode && (
+                    <div className="flex items-center justify-between text-[9px] text-sky-200 font-bold leading-none">
+                        <span>👥 {mpCode}</span>
+                        <span>{mpCount} {mpCount === 1 ? 'player' : 'players'}</span>
+                    </div>
+                )}
                 {/* Tree being chomped */}
                 {activeTree && (
                     <div className="flex items-center gap-1.5">
@@ -561,6 +571,163 @@ const NameEditor = ({ compact = false }: { compact?: boolean }) => {
     );
 };
 
+// =====================================================================
+// Joint games (multiplayer): lobby, players, feed, knock-out, lost connection
+// =====================================================================
+const TEAM_KEY = 'chucky.team';
+const LAST_CODE_KEY = 'chucky.lastCode';
+const readSetting = (key: string) => { try { return window.localStorage.getItem(key) || ''; } catch { return ''; } };
+const writeSetting = (key: string, value: string) => { try { window.localStorage.setItem(key, value); } catch { /* ignore */ } };
+
+const TeamPicker = ({ team, onChange }: { team: Team; onChange: (team: Team) => void }) => (
+    <div className="grid grid-cols-5 gap-1.5">
+        {TEAMS.map(t => (
+            <button
+                key={t}
+                aria-pressed={team === t}
+                onClick={() => onChange(t)}
+                className={`py-2 rounded-xl border text-[10px] font-bold flex flex-col items-center gap-1 transition-all active:scale-95 ${team === t ? 'bg-white/20 border-white/70 text-white' : 'bg-white/5 border-white/15 text-white/70'}`}
+            >
+                <span className="w-4 h-4 rounded-full border border-white/40" style={{ background: TEAM_INFO[t].color }} />
+                {TEAM_INFO[t].label}
+            </button>
+        ))}
+    </div>
+);
+
+const TogetherPanel = ({ onBack }: { onBack: () => void }) => {
+    const mp = useGameStore(state => state.mp);
+    const playerName = useGameStore(state => state.playerName);
+    const [team, setTeam] = useState<Team>(() => {
+        const saved = readSetting(TEAM_KEY) as Team;
+        return TEAMS.includes(saved) ? saved : 'solo';
+    });
+    const [code, setCode] = useState(() => readSetting(LAST_CODE_KEY));
+    const connecting = mp.status === 'connecting';
+    const name = playerName || 'Chucky';
+
+    const chooseTeam = (t: Team) => {
+        setTeam(t);
+        writeSetting(TEAM_KEY, t);
+    };
+    const join = (e?: React.FormEvent) => {
+        e?.preventDefault();
+        if (!code.trim() || connecting) return;
+        writeSetting(LAST_CODE_KEY, code.trim());
+        multiplayer.join(code.trim(), name, team);
+    };
+
+    return (
+        <Panel title="👥 Play together" onBack={() => { multiplayer.clearError(); onBack(); }}>
+            <p className="text-[11px] text-white/60 mb-3">Everyone on the same Wi-Fi opens this game from the same computer. One player creates a game and shares the code.</p>
+            <div className="text-[10px] uppercase tracking-wider text-white/50 font-bold mb-1.5">Your name</div>
+            <NameEditor compact />
+            <div className="text-[10px] uppercase tracking-wider text-white/50 font-bold mt-3 mb-1.5">Team</div>
+            <TeamPicker team={team} onChange={chooseTeam} />
+            <p className="text-[10px] text-white/50 mt-1.5">
+                {team === 'solo' ? 'Solo: everyone is your rival.' : 'Same colour = team mates: your logs don\'t hurt them - they catch them.'}
+            </p>
+            <div className="mt-4 space-y-2">
+                <MenuButton variant="primary" disabled={connecting} onClick={() => multiplayer.create(name, team)}>
+                    {connecting ? 'Connecting…' : '🌲 Create a game'}
+                </MenuButton>
+                <form onSubmit={join} className="flex gap-2">
+                    <input
+                        value={code}
+                        onChange={(e) => setCode(e.target.value.toUpperCase())}
+                        maxLength={12}
+                        placeholder="Code, e.g. BARK-27"
+                        aria-label="Game code"
+                        className="flex-1 min-w-0 select-text bg-black/40 border border-white/20 rounded-xl px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-amber-400 uppercase tracking-wider"
+                    />
+                    <button type="submit" disabled={connecting || !code.trim()} className="bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-black font-black px-4 rounded-xl text-sm active:scale-95">
+                        Join
+                    </button>
+                </form>
+            </div>
+            {mp.error && <p className="mt-3 text-xs text-red-200 bg-red-900/40 border border-red-400/30 rounded-xl px-3 py-2">{mp.error}</p>}
+        </Panel>
+    );
+};
+
+const PlayersList = () => {
+    const mp = useGameStore(state => state.mp);
+    const myName = useGameStore(state => state.playerName) || 'Chucky';
+    const myScore = useGameStore(state => Math.floor(state.score));
+    const rows = [
+        { id: mp.myId, name: `${myName} (you)`, team: mp.team, score: myScore, ko: false },
+        ...Object.values(mp.players),
+    ].sort((a, b) => b.score - a.score);
+    return (
+        <div className="space-y-1.5">
+            {rows.map(r => (
+                <div key={r.id} className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm">
+                    <span className="w-3 h-3 rounded-full shrink-0" style={{ background: TEAM_INFO[r.team]?.color }} />
+                    <span className="flex-1 truncate font-bold">{r.name}{r.ko ? ' 😵' : ''}</span>
+                    <span className="text-[10px] text-white/50">{TEAM_INFO[r.team]?.label}</span>
+                    <span className="font-mono text-amber-300 text-xs">⭐ {r.score.toLocaleString()}</span>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+// Joins, leaves, bonks, knock-outs - a few lines above the throw button
+const MpFeed = () => {
+    const feed = useGameStore(state => state.mp.feed);
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        if (!feed.length) return;
+        const timer = setInterval(() => setTick(n => n + 1), 1000);
+        return () => clearInterval(timer);
+    }, [feed.length]);
+    const now = Date.now();
+    const visible = feed.filter(f => now - f.at < 6000);
+    if (!visible.length) return null;
+    return (
+        <div className="absolute left-2 bottom-[132px] z-30 flex flex-col items-start gap-1 pointer-events-none max-w-[60%]">
+            {visible.map(f => (
+                <div key={f.id} className="bg-black/55 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded-lg border border-white/10 shadow">{f.text}</div>
+            ))}
+        </div>
+    );
+};
+
+const KnockoutOverlay = () => {
+    const koUntil = useGameStore(state => state.koUntil);
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        if (!koUntil) return;
+        const timer = setInterval(() => setTick(n => n + 1), 250);
+        return () => clearInterval(timer);
+    }, [koUntil]);
+    if (!koUntil) return null;
+    const left = Math.max(0, Math.ceil((koUntil - Date.now()) / 1000));
+    return (
+        <div className="absolute inset-x-0 top-1/3 z-40 flex justify-center pointer-events-none">
+            <div className="bg-black/70 backdrop-blur-md text-white rounded-2xl px-5 py-3 text-center border border-white/15 shadow-2xl">
+                <div className="text-2xl">😵</div>
+                <div className="font-black">Knocked out!</div>
+                <div className="text-xs text-white/70">You dropped half your logs · back in {left}s</div>
+            </div>
+        </div>
+    );
+};
+
+const ConnectionLostOverlay = () => {
+    const status = useGameStore(state => state.mp.status);
+    const code = useGameStore(state => state.mp.code);
+    if (status !== 'lost') return null;
+    return (
+        <div className="absolute inset-0 z-[70] bg-black/70 flex items-center justify-center p-4">
+            <Panel title="Connection lost">
+                <p className="text-sm text-white/70 mb-4">The connection to the game server dropped. Check the Wi-Fi and that the computer running the game is still on, then join {code} again.</p>
+                <MenuButton variant="primary" onClick={() => multiplayer.leave()}>Back to the start screen</MenuButton>
+            </Panel>
+        </div>
+    );
+};
+
 // Panel wrapper used by the menus
 const Panel = ({ title, children, onBack }: { title: string; children: ReactNode; onBack?: () => void }) => (
     <div className="w-full max-w-sm bg-black/70 backdrop-blur-xl border border-white/15 rounded-2xl p-4 shadow-2xl text-white">
@@ -649,7 +816,7 @@ const SettingsPanel = () => {
 // =====================================================================
 // In-game menu (pauses the game)
 // =====================================================================
-type MenuView = 'main' | 'save' | 'load' | 'leaderboard' | 'settings' | 'confirmNew';
+type MenuView = 'main' | 'save' | 'load' | 'leaderboard' | 'settings' | 'confirmNew' | 'players' | 'confirmLeave';
 
 const GameMenu = () => {
     const closeGameMenu = useGameStore(state => state.closeGameMenu);
@@ -658,20 +825,33 @@ const GameMenu = () => {
     const day = useGameStore(state => state.day);
     const runKey = useGameStore(state => state.runKey);
     const leaderboardRank = useGameStore(state => state.leaderboardRank);
+    const mpCode = useGameStore(state => (state.mp.status === 'playing' ? state.mp.code : ''));
+    const inJointGame = !!mpCode;
     const [view, setView] = useState<MenuView>('main');
 
     return (
         <div className="absolute inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 animate-in fade-in duration-150">
             {view === 'main' && (
-                <Panel title="Paused">
-                    <div className="text-xs text-white/60 mb-3">⭐ {score.toLocaleString()} · Day {day}{leaderboardRank ? ` · 🏆 #${leaderboardRank}` : ''}</div>
+                <Panel title={inJointGame ? `👥 Joint game ${mpCode}` : 'Paused'}>
+                    <div className="text-xs text-white/60 mb-3">
+                        ⭐ {score.toLocaleString()} · Day {day}{leaderboardRank ? ` · 🏆 #${leaderboardRank}` : ''}
+                        {inJointGame && <span className="block text-[10px] text-sky-200 mt-0.5">The game keeps going while this menu is open.</span>}
+                    </div>
                     <div className="space-y-2">
                         <MenuButton variant="primary" onClick={closeGameMenu}>▶ Resume</MenuButton>
-                        <MenuButton onClick={() => setView('save')}>💾 Save Game</MenuButton>
-                        <MenuButton onClick={() => setView('load')}>📂 Load Game</MenuButton>
+                        {inJointGame ? (
+                            <MenuButton onClick={() => setView('players')}>👥 Players</MenuButton>
+                        ) : (
+                            <>
+                                <MenuButton onClick={() => setView('save')}>💾 Save Game</MenuButton>
+                                <MenuButton onClick={() => setView('load')}>📂 Load Game</MenuButton>
+                            </>
+                        )}
                         <MenuButton onClick={() => setView('leaderboard')}>🏆 Leaderboard</MenuButton>
                         <MenuButton onClick={() => setView('settings')}>⚙️ Settings</MenuButton>
-                        <MenuButton variant="danger" onClick={() => setView('confirmNew')}>🌱 New Game</MenuButton>
+                        {inJointGame
+                            ? <MenuButton variant="danger" onClick={() => setView('confirmLeave')}>🚪 Leave game</MenuButton>
+                            : <MenuButton variant="danger" onClick={() => setView('confirmNew')}>🌱 New Game</MenuButton>}
                     </div>
                 </Panel>
             )}
@@ -695,6 +875,21 @@ const GameMenu = () => {
             {view === 'settings' && (
                 <Panel title="Settings" onBack={() => setView('main')}>
                     <SettingsPanel />
+                </Panel>
+            )}
+            {view === 'players' && (
+                <Panel title={`Players · ${mpCode}`} onBack={() => setView('main')}>
+                    <PlayersList />
+                    <p className="text-[10px] text-white/50 mt-2">Share the code <b className="text-white">{mpCode}</b> - others join from the start screen with 👥 Play together.</p>
+                </Panel>
+            )}
+            {view === 'confirmLeave' && (
+                <Panel title="Leave this game?" onBack={() => setView('main')}>
+                    <p className="text-sm text-white/70 mb-4">Your score stays on the leaderboard. You can join again with the code {mpCode} while others are still playing.</p>
+                    <div className="space-y-2">
+                        <MenuButton variant="danger" onClick={() => multiplayer.leave()}>Yes, leave</MenuButton>
+                        <MenuButton onClick={() => setView('main')}>Cancel</MenuButton>
+                    </div>
                 </Panel>
             )}
             {view === 'confirmNew' && (
@@ -725,7 +920,7 @@ const BuildMenuOverlay = () => {
 // =====================================================================
 const StartScreen = () => {
     const startGame = useGameStore(state => state.startGame);
-    const [view, setView] = useState<'main' | 'load' | 'leaderboard' | 'settings'>('main');
+    const [view, setView] = useState<'main' | 'load' | 'leaderboard' | 'settings' | 'together'>('main');
     const hasSaves = persistence.listSlots().some(s => s !== null);
 
     if (view === 'load') {
@@ -749,6 +944,13 @@ const StartScreen = () => {
             </div>
         );
     }
+    if (view === 'together') {
+        return (
+            <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm overflow-y-auto">
+                <TogetherPanel onBack={() => setView('main')} />
+            </div>
+        );
+    }
 
     return (
         <div className="absolute inset-0 z-40 bg-black/80 flex flex-col items-center justify-center text-white p-4 backdrop-blur-sm overflow-y-auto">
@@ -769,6 +971,7 @@ const StartScreen = () => {
             <div className="w-full max-w-xs space-y-2">
                 <NameEditor compact />
                 <MenuButton variant="primary" onClick={() => startGame()}>START CHOMPING</MenuButton>
+                <MenuButton onClick={() => setView('together')}>👥 Play together</MenuButton>
                 <div className="grid grid-cols-2 gap-2">
                     <MenuButton onClick={() => setView('load')} disabled={!hasSaves}>📂 Load</MenuButton>
                     <MenuButton onClick={() => setView('leaderboard')}>🏆 Scores</MenuButton>
@@ -877,6 +1080,9 @@ export default function App() {
                     <Controls />
                     <BuildMenuOverlay />
                     <GameMenuOverlay />
+                    <MpFeed />
+                    <KnockoutOverlay />
+                    <ConnectionLostOverlay />
                 </>
             )}
 

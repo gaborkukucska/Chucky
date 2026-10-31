@@ -34,6 +34,11 @@ export interface LooseLogData {
   value?: number;    // Logs this pickup is worth (demolition debris is bundled). Default 1
   velocity?: [number, number, number]; // Launch velocity (thrown) instead of the spawn "pop"
   thrown?: boolean;  // Thrown by a Chucky: hurts what it hits while flying; pick-up = wood only, no score
+  // Joint games
+  owner?: string;    // Player whose game simulates it and sends position corrections
+  thrownBy?: string; // Player who threw it
+  team?: string;     // Thrower's team (team mates catch it instead of getting hurt)
+  woodOnly?: boolean; // Pick-up gives wood only (knock-out drops)
 }
 
 export interface BoulderData {
@@ -59,6 +64,8 @@ export interface PlacedStructure {
     health: number;
     maxHealth: number;
     points?: number; // Score awarded for building it (taken back if demolished)
+    ownerId?: string; // Joint games: who built it
+    team?: string;    // Joint games: the builder's team
 }
 
 export interface ComboState {
