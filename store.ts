@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { GamePhase, CameraMode, TreeData, LogData, LooseLogData, BoulderData, Blueprint, PlacedStructure, ComboState, Notification } from './types';
+import { GamePhase, CameraMode, TreeData, LogData, LooseLogData, BoulderData, Blueprint, PlacedStructure, ComboState, Notification, MobData, FoodData } from './types';
 import { audioService } from './services/audio';
 
 export const MAP_SIZE = 300; 
@@ -58,6 +58,7 @@ interface GameState {
   health: number;
   maxHealth: number;
   
+  runId: number; // Incremented by every startGame() so the player respawns
   updateTime: (delta: number, playerPos: [number, number, number]) => void;
   spawnMob: (playerPos: [number, number, number]) => void;
   removeMob: (id: string) => void;
@@ -83,11 +84,12 @@ interface GameState {
   closeBuildMenu: () => void;
   selectBlueprint: (id: string) => void;
   updatePlacementRotation: (x: number, y: number) => void; // Joystick input
-  placeStructure: (position: [number, number, number]) => void;
+  placeStructure: (position: [number, number, number], rotation?: [number, number, number]) => void;
   setDestroyTarget: (id: string | null) => void;
   startDestroying: () => void;
   stopDestroying: () => void;
   tickDestruction: (delta: number) => void;
+  checkPowerups: () => void;
   
   // Combo Logic
   startChompingSession: () => void;
@@ -142,6 +144,18 @@ export const calculateTerrainHeight = (x: number, z: number) => {
 export const isLand = (x: number, z: number) => {
     return calculateTerrainHeight(x, z) > 0.5;
 };
+
+// --- Day / Night ---
+// timeOfDay: 0 = sunrise, 0.25 = noon, 0.5 = sunset, 0.75 = midnight.
+// The sun is below the horizon for the second half of the cycle.
+// Single source of truth for lighting, mob spawning and the ghost light.
+export const isNightTime = (t: number) => t >= 0.5;
+
+const WATER_LEVEL = -1.5;
+const START_TIME_OF_DAY = 0.08; // Early morning - sun already up
+const MAX_MOBS = 5;
+const MOB_SPAWN_RATE = 0.3;    // Average spawns per second at night (below MAX_MOBS)
+const MOB_DESPAWN_RATE = 1.2;  // Average despawns per second during the day
 
 // --- Blueprint Generation ---
 const generateBlueprints = (): Blueprint[] => {
@@ -300,31 +314,45 @@ export const useGameStore = create<GameState>((set, get) => ({
   hasSeenLogPowerupPopup: false,
 
   // Time & Mobs
-  timeOfDay: 0,
+  timeOfDay: START_TIME_OF_DAY,
   dayDuration: 300,
+  runId: 0,
   mobs: [],
   food: [],
   health: 100,
   maxHealth: 100,
 
-  startGame: () => set((state) => ({ 
-      phase: 'PLAYING', 
-      woodCount: 0, 
+  startGame: () => set((state) => ({
+      phase: 'PLAYING',
+      runId: state.runId + 1,
+      woodCount: 0,
       score: 0,
       totalLogsCollected: 0,
       notification: null,
-      damIntegrity: 0, 
+      damIntegrity: 0,
       logs: [],
       looseLogs: [],
       activeTreeId: null,
       trees: state.trees.map(t => ({...t, health: t.maxHealth, isFelled: false})),
       placedStructures: [],
+      // Fresh run: blueprints have to be earned again (score restarts at 0)
+      blueprints: state.blueprints.map(b => ({ ...b, unlocked: false })),
       combo: { active: false, startTime: 0, logsCollected: 0, multiplier: 1, lastLogTime: 0, logsSinceLastLevel: 0, levelStartTime: 0 },
       isBuildMenuOpen: false,
       isPlacementMode: false,
+      selectedBlueprintId: null,
+      placementRotation: [0, 0, 0],
+      destroyTargetId: null,
+      isDestroying: false,
       isPaused: false,
       lastPauseStartTime: 0,
-      timeOfDay: 0,
+      lastChompTime: 0,
+      treesChomped: [],
+      isTreePowerupActive: false,
+      treePowerupEndTime: 0,
+      isLogPowerupActive: false,
+      logPowerupEndTime: 0,
+      timeOfDay: START_TIME_OF_DAY,
       mobs: [],
       food: [],
       health: 100,
@@ -447,6 +475,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (!hasSeenLogPowerupPopup) {
               hasSeenLogPowerupPopup = true;
               notification = {
+                  id: `magnet-${now}`,
                   title: "MAGNETIC LOGS ACTIVATED!",
                   message: "You reached a 3x Multiplier! For the next 30 seconds, your collection radius is massive! Gather everything!",
                   type: "info"
@@ -598,6 +627,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (!hasSeenLogPowerupPopup) {
               hasSeenLogPowerupPopup = true;
               notification = {
+                  id: `magnet-${now}`,
                   title: "MAGNETIC LOGS ACTIVATED!",
                   message: "You reached a 3x Multiplier! For the next 30 seconds, your collection radius is massive! Gather everything!",
                   type: "info"
@@ -687,7 +717,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   damageTree: (id, amount) => set((state) => {
     const tree = state.trees.find(t => t.id === id);
-    if (!tree || tree.isFelled) return {};
+    if (!tree || tree.isFelled) return state;
 
     const newHealth = Math.max(0, tree.health - amount);
     const isFelled = newHealth === 0;
@@ -756,6 +786,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             if (!hasSeenTreePowerupPopup) {
                 hasSeenTreePowerupPopup = true;
                 notification = { 
+                    id: `mega-chomp-${now}`,
                     title: "MEGA CHOMP ACTIVATED!", 
                     message: "You chomped 3 trees in 30 seconds! For the next 22.5 seconds, you can chomp multiple trees at once! Get to work!", 
                     type: "info" 
@@ -789,7 +820,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   }),
 
   setActiveTree: (id) => set((state) => {
-      if (state.activeTreeId === id) return {};
+      if (state.activeTreeId === id) return state;
       return { activeTreeId: id };
   }),
 
@@ -799,8 +830,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (state.phase === 'GAMEOVER') return {};
       const newHealth = Math.max(0, state.health - amount);
       if (newHealth === 0) {
-          state.endGame();
-          return { health: 0 };
+          return { health: 0, phase: 'GAMEOVER', isPaused: true };
       }
       return { health: newHealth };
   }),
@@ -884,7 +914,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       };
   }),
   
-  placeStructure: (position) => set((state) => {
+  placeStructure: (position, rotation) => set((state) => {
       if (!state.selectedBlueprintId) return {};
       const blueprint = state.blueprints.find(b => b.id === state.selectedBlueprintId);
       if (!blueprint) return {};
@@ -895,7 +925,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           id: `struct-${Date.now()}`,
           blueprintId: blueprint.id,
           position: position,
-          rotation: state.placementRotation,
+          rotation: rotation ?? state.placementRotation,
           health: blueprint.cost * 10, // Arbitrary health based on cost
           maxHealth: blueprint.cost * 10
       };
@@ -906,7 +936,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           woodCount: state.woodCount - blueprint.cost,
           placedStructures: [...state.placedStructures, newStructure],
           isPlacementMode: false,
-          selectedBlueprintId: null
+          selectedBlueprintId: null,
+          placementRotation: [0, 0, 0]
       };
   }),
   
@@ -917,7 +948,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   stopDestroying: () => set({ isDestroying: false }),
   
   tickDestruction: (delta) => set((state) => {
-      if (!state.isDestroying || !state.destroyTargetId) return {};
+      if (!state.isDestroying || !state.destroyTargetId) return state;
       
       const structure = state.placedStructures.find(s => s.id === state.destroyTargetId);
       if (!structure) return { isDestroying: false, destroyTargetId: null };
@@ -980,7 +1011,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           // Do NOT reset hasSeenLogPowerupPopup so it doesn't popup again
       }
       
-      return updates;
+      // Return the untouched state when nothing changed so subscribers are not woken every frame
+      return Object.keys(updates).length > 0 ? updates : state;
   }),
 
   startChompingSession: () => set((state) => {
@@ -1000,36 +1032,38 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Time & Mobs
   updateTime: (delta, playerPos) => set((state) => {
-      if (state.isPaused) return {};
+      if (state.isPaused || state.phase !== 'PLAYING') return state;
       
       const dayProgress = delta / state.dayDuration;
       let newTime = state.timeOfDay + dayProgress;
       if (newTime >= 1) newTime -= 1; // Loop day
       
-      // Mob Spawning Logic (Night time: 0.75 to 0.25)
-      const isNight = newTime > 0.75 || newTime < 0.25;
+      // Only create a new mobs array when a mob is actually added or removed
+      let newMobs = state.mobs;
       
-      let newMobs = [...state.mobs];
-      
-      if (isNight) {
-          // Chance to spawn mob
-          if (state.mobs.length < 8 && Math.random() < 0.01) { // Increased chance
+      if (isNightTime(newTime)) {
+          if (state.mobs.length < MAX_MOBS && Math.random() < MOB_SPAWN_RATE * delta) {
              const angle = Math.random() * Math.PI * 2;
              const dist = 30 + Math.random() * 20; // Spawn away from player
+             const limit = MAP_SIZE / 2 - 10;
+             const mx = Math.max(-limit, Math.min(limit, playerPos[0] + Math.cos(angle) * dist));
+             const mz = Math.max(-limit, Math.min(limit, playerPos[2] + Math.sin(angle) * dist));
+             const groundY = calculateTerrainHeight(mx, mz);
              
-             newMobs.push({
-                 id: `mob-${Date.now()}`,
-                 position: [playerPos[0] + Math.cos(angle) * dist, 0, playerPos[2] + Math.sin(angle) * dist],
-                 velocity: [0, 0, 0],
-                 type: Math.random() > 0.5 ? 'wolf' : 'bear',
-                 createdAt: Date.now()
-             });
+             // Mobs are land animals - skip this spawn attempt if the spot is under water
+             if (groundY > WATER_LEVEL + 0.5) {
+                 newMobs = [...state.mobs, {
+                     id: `mob-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+                     position: [mx, groundY + 2, mz],
+                     velocity: [0, 0, 0],
+                     type: Math.random() > 0.5 ? 'wolf' : 'bear',
+                     createdAt: Date.now()
+                 }];
+             }
           }
-      } else {
-          // Despawn mobs during day
-          if (newMobs.length > 0 && Math.random() < 0.02) {
-              newMobs.pop();
-          }
+      } else if (state.mobs.length > 0 && Math.random() < MOB_DESPAWN_RATE * delta) {
+          // Despawn mobs during the day
+          newMobs = state.mobs.slice(0, -1);
       }
       
       // Overheal Decay

@@ -209,7 +209,7 @@ const ComboUI = () => {
                     />
                 </div>
                 <div className="text-left text-white/70 text-[9px] font-medium">
-                    {combo.multiplier === 1 ? `${combo.logsCollected}/3 to Start Multiplier` : `${combo.logsSinceLastLevel}/3 to Extend`}
+                    {combo.multiplier === 1 ? `${combo.logsCollected}/2 to Start Multiplier` : `${combo.logsSinceLastLevel}/2 to Next Level`}
                 </div>
             </div>
         </div>
@@ -289,10 +289,16 @@ const NotificationUI = () => {
 };
 
 export default function App() {
-  const { phase, startGame, woodCount, trees, activeTreeId, isPlacementMode, selectedBlueprintId, isBuildMenuOpen } = useGameStore();
+  // Selectors only - subscribing to the whole store re-rendered the entire app (and the
+  // 3D scene) on every store change, e.g. every frame while chomping.
+  const phase = useGameStore(state => state.phase);
+  const startGame = useGameStore(state => state.startGame);
+  const woodCount = useGameStore(state => state.woodCount);
 
-  // Derived state for the active tree's health
-  const activeTree = activeTreeId ? trees.find(t => t.id === activeTreeId) : null;
+  // Derived state for the active tree's health (returns the existing tree object - stable reference)
+  const activeTree = useGameStore(state =>
+      state.activeTreeId ? (state.trees.find(t => t.id === state.activeTreeId) ?? null) : null
+  );
   
   useEffect(() => {
      const unlock = () => {
@@ -389,7 +395,7 @@ export default function App() {
                                 <div className="mt-2 pt-2 border-t border-white/10">
                                     <div className="flex justify-between items-center mb-1">
                                         <div className="text-[9px] uppercase font-bold text-white/70 tracking-wider">Tree Health</div>
-                                        <div className="text-[9px] font-mono text-white/50">{Math.ceil(activeTree.health)}%</div>
+                                        <div className="text-[9px] font-mono text-white/50">{Math.ceil((activeTree.health / activeTree.maxHealth) * 100)}%</div>
                                     </div>
                                     <div className="w-full h-2 bg-black/50 rounded-full overflow-hidden border border-white/10">
                                         <div 

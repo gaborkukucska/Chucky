@@ -8,6 +8,9 @@ import { TreeData, LogData, LooseLogData, BoulderData, PlacedStructure, Blueprin
 import { currentWoodchuckPos } from '../globals';
 
 const WATER_LEVEL = -1.5;
+// Logs are picked up when Chucky's centre is this close (squared) - fallback to onCollide,
+// which is not guaranteed for the kinematic player body.
+const PICKUP_RADIUS_SQ = 1.4 * 1.4;
 
 export const Boulder = React.memo(({ data }: { data: BoulderData }) => {
     const [ref] = useSphere(() => ({
@@ -106,6 +109,18 @@ export const Log = React.memo(({ data }: { data: LogData }) => {
             const pos = mesh.position;
             const now = Date.now();
             const age = now - data.createdAt;
+
+            // Proximity pick-up
+            if (!collectedRef.current && age > (isLogPowerupActive ? 500 : 2500)) {
+                const pdx = currentWoodchuckPos.x - pos.x;
+                const pdy = currentWoodchuckPos.y - pos.y;
+                const pdz = currentWoodchuckPos.z - pos.z;
+                if (pdx * pdx + pdy * pdy + pdz * pdz < PICKUP_RADIUS_SQ) {
+                    collectedRef.current = true;
+                    collectLog(data.id);
+                    return;
+                }
+            }
             // Log Magnet Powerup
             // Allow collection slightly earlier if magnet is active
             const magnetInvulnTime = 500; // Reduced further
@@ -318,6 +333,18 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
             if (age > 120000) {
                 expireLooseLog(data.id);
                 return;
+            }
+
+            // Proximity pick-up
+            if (!collectedRef.current && age > (isLogPowerupActive ? 500 : 2500)) {
+                const pdx = currentWoodchuckPos.x - pos.x;
+                const pdy = currentWoodchuckPos.y - pos.y;
+                const pdz = currentWoodchuckPos.z - pos.z;
+                if (pdx * pdx + pdy * pdy + pdz * pdz < PICKUP_RADIUS_SQ) {
+                    collectedRef.current = true;
+                    collectLooseLog(data.id);
+                    return;
+                }
             }
 
             // Log Magnet Powerup
