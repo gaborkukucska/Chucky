@@ -301,27 +301,36 @@ const PlacementPanel = () => {
         window.woodchuckInput.isBuilding = true;
     };
 
+    const sideButton = 'w-10 h-10 rounded-xl bg-black/60 backdrop-blur-md border border-white/20 text-white text-lg font-bold flex items-center justify-center shadow-lg pointer-events-auto active:scale-90 transition-transform';
+
+    // Left edge, vertically centred: reachable with the left thumb (the right thumb is on the
+    // joystick) and clear of Chucky in the middle of the screen
     return (
-        <div className="fixed bottom-36 inset-x-0 z-40 flex justify-center pointer-events-none px-3">
-            <div className="pointer-events-auto bg-black/70 backdrop-blur-md border border-white/15 rounded-2xl px-2.5 py-2 shadow-2xl w-full max-w-xs">
-                <div className="flex justify-between items-center text-[10px] font-bold text-white mb-1.5">
-                    <span className="truncate">🏗️ {blueprint.name} · 🪵 {blueprint.cost}<span className="text-white/50"> / {woodCount}</span></span>
+        <div className="fixed left-1.5 top-1/2 -translate-y-1/2 z-40 flex flex-col items-start gap-2 pointer-events-none">
+            <div className="max-w-[11rem] bg-black/65 backdrop-blur-md border border-white/15 rounded-xl px-2 py-1 text-[10px] font-bold text-white shadow-lg leading-tight">
+                <div className="truncate">🏗️ {blueprint.name}</div>
+                <div className="truncate">
+                    🪵 {blueprint.cost}<span className="text-white/50"> / {woodCount}</span>{' · '}
                     {valid
                         ? <span className={inRiver ? 'text-cyan-300' : 'text-green-300'}>{inRiver ? '🌊 Dam! ×2.5 pts' : '✓ Ready'}</span>
-                        : <span className="text-red-300 truncate ml-2">{reason}</span>}
+                        : <span className="text-red-300">{reason}</span>}
                 </div>
-                <div className="grid grid-cols-4 gap-1.5">
-                    <button className="col-span-1 py-2 rounded-xl bg-white/10 active:bg-white/25 text-white text-sm font-bold" onClick={() => rotatePlacement(-Math.PI / 4)} aria-label="Rotate left">↺</button>
-                    <button
-                        className={`col-span-2 py-2 rounded-xl text-white text-sm font-black active:scale-95 transition-transform ${valid ? 'bg-gradient-to-r from-green-500 to-green-700' : 'bg-gray-600/70 opacity-60'}`}
-                        disabled={!valid}
-                        onClick={place}
-                    >
-                        ✅ PLACE
-                    </button>
-                    <button className="col-span-1 py-2 rounded-xl bg-white/10 active:bg-white/25 text-white text-sm font-bold" onClick={() => rotatePlacement(Math.PI / 4)} aria-label="Rotate right">↻</button>
-                </div>
-                <button className="w-full mt-1.5 text-[10px] text-white/60 font-bold uppercase tracking-wider" onClick={cancelPlacement}>✖ Stop building</button>
+            </div>
+            <div className="w-14 flex flex-col items-center gap-2">
+                <button className={sideButton} onClick={() => rotatePlacement(Math.PI / 4)} aria-label="Rotate right">↻</button>
+                <button
+                    className={`w-14 h-14 rounded-2xl border-2 text-white text-[9px] font-black flex flex-col items-center justify-center gap-0.5 shadow-xl pointer-events-auto transition-transform active:scale-90 ${valid
+                        ? 'bg-gradient-to-br from-green-500 to-green-700 border-green-200/70'
+                        : 'bg-gray-600/70 border-white/20 opacity-60'}`}
+                    disabled={!valid}
+                    onClick={place}
+                    aria-label="Place structure"
+                >
+                    <span className="text-xl leading-none">✅</span>
+                    PLACE
+                </button>
+                <button className={sideButton} onClick={() => rotatePlacement(-Math.PI / 4)} aria-label="Rotate left">↺</button>
+                <button className={`${sideButton} text-sm`} onClick={cancelPlacement} aria-label="Stop building">✖</button>
             </div>
         </div>
     );

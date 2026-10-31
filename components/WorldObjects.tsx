@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useLayoutEffect, forwardRef } from 'react';
+import React, { useMemo, useRef, useEffect, useLayoutEffect, useState, forwardRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useSphere, useCylinder, useCompoundBody } from '@react-three/cannon';
 import * as THREE from 'three';
@@ -609,10 +609,13 @@ const InstancedLogs = ({ logs, material, castShadow = false, receiveShadow = fal
     receiveShadow?: boolean;
     renderOrder?: number;
 }) => {
-    const meshRef = useRef<THREE.InstancedMesh>(null);
+    // The mesh is kept in state (callback ref): if React-Three-Fiber ever rebuilds it (its
+    // args change, e.g. a different log count), the log positions are written again.
+    // A rebuilt mesh starts with every instance at the same spot - which showed up as a
+    // preview of a single log after the preview switched between cyan and red.
+    const [mesh, setMesh] = useState<THREE.InstancedMesh | null>(null);
 
     useLayoutEffect(() => {
-        const mesh = meshRef.current;
         if (!mesh) return;
         const dummy = new THREE.Object3D();
         logs.forEach((log, i) => {
@@ -623,12 +626,15 @@ const InstancedLogs = ({ logs, material, castShadow = false, receiveShadow = fal
         });
         mesh.instanceMatrix.needsUpdate = true;
         mesh.computeBoundingSphere(); // Correct frustum culling for the whole structure
-    }, [logs]);
+    }, [mesh, logs]);
 
     return (
         <instancedMesh
-            ref={meshRef}
-            args={[STRUCTURE_LOG_GEOMETRY, material as any, logs.length]}
+            ref={setMesh}
+            // Only the log count is a constructor argument; the material is a normal prop so
+            // switching it (cyan/red preview) doesn't rebuild the mesh
+            args={[STRUCTURE_LOG_GEOMETRY, undefined, logs.length]}
+            material={material as any}
             castShadow={castShadow}
             receiveShadow={receiveShadow}
             renderOrder={renderOrder}

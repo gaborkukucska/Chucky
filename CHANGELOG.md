@@ -2,9 +2,22 @@
 
 All notable changes to Woodchuck Dam Builder 3000 (*Chucky*). Newest first.
 
-## 2026-10-31: Regression fixes and new features (rounds 1–6)
+## 2026-10-31: Regression fixes and new features (rounds 1–7)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 7: Building preview fix, placement controls out of the way
+
+**Preview showed a single log.** After placing a structure, the preview of the next one (any blueprint) showed only one log.
+- **Cause:** the preview mesh received its material as a constructor argument. When the preview switched between cyan and red, which happens straight after placing because the new spot is next to the structure, the mesh was rebuilt. Log positions were only written when the blueprint changed, so the rebuilt mesh had every log at the same spot.
+- **Fix:** the material is now a normal property, so changing colour no longer rebuilds the mesh, and the log positions are written again whenever the mesh is rebuilt for any reason.
+
+**Placement controls out of the way.** The building panel sat at the bottom centre, right over Chucky in the 3rd-person view.
+- The controls are now a slim column on the left edge, where the left thumb can reach them: ↻, a big ✅ PLACE, ↺ and ✖.
+- A small label above the column shows the blueprint, its cost and why a spot isn't allowed.
+- The ✅ and ✖ buttons in the top-right row still work too.
+
+Files: `components/WorldObjects.tsx`, `App.tsx`, `README.md`, `CHANGELOG.md`.
 
 ### Round 6: Grass near Chucky, graphics quality, sound settings
 
@@ -84,7 +97,7 @@ Files: `server/leaderboardApi.ts` (new), `vite.config.ts`, `.gitignore`, `types.
 
 **Building placement.**
 - The preview is pushed out by the blueprint's footprint, so big structures no longer land on top of Chucky.
-- The preview turns **red** when placement isn't possible (not enough wood, too close to another structure, off the map) and shows the reason. It is green when the spot is valid.
+- The preview turns **red** when placement isn't possible (not enough wood, too close to another structure, off the map) and shows the reason. It is cyan when the spot is valid.
 - A placement panel has ↺ / ✅ PLACE / ↻ and *Stop building*. Rotation is actually applied. Keyboard: R/E rotate, Q rotates back, Enter places.
 - You keep placing while you can afford another of the same structure.
 - Building scores points per log (2 on land, 5 in the river). **Demolishing takes those points back**, so placing and destroying can't be farmed.

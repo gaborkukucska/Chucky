@@ -89,7 +89,7 @@ If you run the server directly on your phone with Termux:
 
 1. **Chomp trees**: walk up against a tree trunk and Chucky chomps it automatically. The bar at the top shows the tree's health. Felled trees drop logs and sometimes an apple or a berry.
 2. **Collect logs**: walk over logs to pick them up. Picking logs up quickly builds your combo.
-3. **Build**: tap 🏗️, pick an unlocked blueprint and place it. The preview is green when the spot is valid and red when it isn't (not enough wood, too close to another structure, or off the map).
+3. **Build**: tap 🏗️, pick an unlocked blueprint and place it. The see-through preview is cyan when the spot is valid and red when it isn't (not enough wood, too close to another structure, or off the map).
 4. **Eat**: apples heal 20 and berries heal 10 (up to 200% health). Every 3rd berry gives you Zoomies.
 5. **Survive the night**: wolves and bears hurt. Stay clear, or head for the water.
 
@@ -110,7 +110,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | **✖️** | Stop building. |
 | **📷** | Switch the camera: 3rd person → Overview → Top-down → Cinematic. |
 | **☰** | Menu: Resume, Save, Load, Leaderboard, Settings, New game. Opening it pauses the game. |
-| **↺ / ↻** (while building) | Rotate the structure. |
+| **Building controls** (left edge, while building) | ↻ / ↺ rotate the structure, **✅ PLACE** places it (green = OK, grey = not possible here), ✖ stops building. The label above shows the blueprint, its cost and why a spot isn't allowed. |
 
 ### Keyboard & mouse
 
