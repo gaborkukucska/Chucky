@@ -29,6 +29,7 @@ export interface LooseLogData {
   position: [number, number, number];
   rotation: [number, number, number];
   createdAt: number;
+  settled?: boolean; // Restored from a save: no spawn "pop", keep the resting position
 }
 
 export interface BoulderData {

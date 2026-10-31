@@ -4,7 +4,7 @@ import { useSphere } from '@react-three/cannon';
 import { Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore, getRiverX, getRiverWidth, calculateTerrainHeight, isNightTime } from '../store';
-import { currentWoodchuckPos } from '../globals';
+import { currentWoodchuckPos, playerState } from '../globals';
 import { audioService } from '../services/audio';
 import { PreviewStructureOverlay } from './WorldObjects';
 import { TreeData, PlacedStructure, Blueprint } from '../types';
@@ -18,6 +18,7 @@ const PLAYER_RADIUS = 0.6;
 // Movement (units per second). Joystick is analog: half a push = half speed.
 const WALK_SPEED = 10;
 const SWIM_SPEED = 7;
+const SPEED_POWERUP_MULTIPLIER = 1.6; // Zoomies (eat 3 berries)
 const ACCELERATION = 8;      // 1/s - how quickly Chucky reaches the target speed
 const DECELERATION = 12;     // 1/s - how quickly Chucky stops when input is released
 const RIVER_DRIFT = 0.35;    // Fraction of the river flow applied while swimming
@@ -25,6 +26,15 @@ const TURN_RATE = 10;        // 1/s - how quickly the model turns to face the mo
 const VERTICAL_SMOOTHING = 15; // 1/s - terrain following / bobbing smoothing
 const MAP_LIMIT = 145;
 const MAX_FRAME_DELTA = 0.1;   // Clamp long frames (tab switch, GC hitch) to avoid teleporting
+
+// Diving (hold the dive button / Space while in the river)
+const SURFACE_Y = WATER_LEVEL + 0.2;  // Where Chucky floats
+const DIVE_SPEED = 4;                 // Units per second down
+const SURFACE_SPEED = 5;              // Units per second back up
+const BREATH_SECONDS = 10;            // Time underwater on a full breath
+const BREATH_REFILL_SECONDS = 3;      // Empty -> full at the surface
+const BREATH_RECOVER_TO_DIVE = 0.35;  // After running out, breath needed before diving again
+const DROWN_DPS = 8;                  // Damage per second while out of breath underwater
 
 // Chomping
 const CHOMP_DPS = 100;           // Tree HP per second (small 100, medium 200, large 300)
@@ -47,6 +57,9 @@ const GHOST_LIGHT_DURATION = 30000;
 // =====================================================================
 // Helpers
 // =====================================================================
+
+const moveTowards = (current: number, target: number, maxStep: number) =>
+    Math.abs(target - current) <= maxStep ? target : current + Math.sign(target - current) * maxStep;
 
 // Must match the Tree visuals in WorldObjects.tsx (trunk base = 0.5 * scale * 1.5)
 const treeScale = (t: TreeData) => (t.size === 'small' ? 0.8 : t.size === 'large' ? 1.5 : 1.1);
@@ -119,6 +132,7 @@ export const Woodchuck = () => {
     const runId = useGameStore(state => state.runId);
     const isNight = useGameStore(state => isNightTime(state.timeOfDay));
     const lastChompTime = useGameStore(state => state.lastChompTime);
+    const isSpeedPowerupActive = useGameStore(state => state.isSpeedPowerupActive);
 
     // Kinematic body: we drive it, it pushes logs/food/mobs. It does not
     // collide with static bodies, so trees/boulders/structures are resolved manually.
@@ -141,6 +155,9 @@ export const Woodchuck = () => {
     const isChomping = useRef(false);
     const colliders = useRef(new Map<string, StructureCollider>());
     const closest = useRef([0, 0]);
+    const breath = useRef(1);
+    const breathLockout = useRef(false); // Ran out of air: must recover before diving again
+    const isDiving = useRef(false);
 
     const visualRef = useRef<THREE.Group>(null);
     const bodyRef = useRef<THREE.Group>(null);
@@ -160,12 +177,23 @@ export const Woodchuck = () => {
     const [ghostActive, setGhostActive] = useState(false);
     const ghostActiveRef = useRef(false);
 
-    // Respawn on mount and on every new run (startGame bumps runId)
+    // Bubbles while underwater (state only flips on change)
+    const [underwater, setUnderwater] = useState(false);
+    const underwaterRef = useRef(false);
+
+    // Respawn on mount and on every new/loaded run (startGame / loadGame bump runId).
+    // A loaded save provides spawnPoint + spawnFacing; otherwise the default river-bank spawn.
     useEffect(() => {
-        const spawn = getSpawnPoint();
+        const st = useGameStore.getState();
+        const spawn: [number, number, number] = st.spawnPoint ? [...st.spawnPoint] as [number, number, number] : getSpawnPoint();
+        const facing = st.spawnPoint ? st.spawnFacing : SPAWN_FACING;
         internalPos.current = spawn;
         velocity.current = { x: 0, z: 0 };
-        currentRotationY.current = SPAWN_FACING;
+        currentRotationY.current = facing;
+        playerState.facing = facing;
+        breath.current = 1;
+        breathLockout.current = false;
+        isDiving.current = false;
         currentWoodchuckPos.set(spawn[0], spawn[1], spawn[2]);
         useGameStore.setState({ woodchuckPosition: spawn });
         api.position.set(spawn[0], spawn[1], spawn[2]);
@@ -231,15 +259,34 @@ export const Woodchuck = () => {
             while (diff > Math.PI) diff -= Math.PI * 2;
             currentRotationY.current += diff * (1 - Math.exp(-TURN_RATE * delta));
         }
+        playerState.facing = currentRotationY.current;
 
         // --- State ---
         const terrainHere = calculateTerrainHeight(x, z);
         const inWater = terrainHere < WATER_LEVEL;
         const touchingGround = (y - terrainHere) < (PLAYER_RADIUS + 0.2);
-        const isSwimming = inWater && !touchingGround;
+        const isUnderwater = inWater && y < WATER_LEVEL - 0.2;
+        // On the river bed while diving still counts as swimming (swim pose, swim speed, drift)
+        const isSwimming = inWater && (!touchingGround || isUnderwater);
+
+        // --- Breath ---
+        if (isUnderwater) {
+            breath.current = Math.max(0, breath.current - delta / BREATH_SECONDS);
+            if (breath.current === 0) {
+                breathLockout.current = true;
+                s.takeDamage(DROWN_DPS * delta);
+            }
+        } else {
+            breath.current = Math.min(1, breath.current + delta / BREATH_REFILL_SECONDS);
+        }
+        if (breathLockout.current && breath.current >= BREATH_RECOVER_TO_DIVE) breathLockout.current = false;
+
+        // Diving: hold the dive button / Space while in the river (and not out of breath)
+        isDiving.current = inWater && !!input.dive && !breathLockout.current;
 
         // --- Smoothed, analog velocity ---
-        const maxSpeed = isSwimming ? SWIM_SPEED : WALK_SPEED;
+        const speedBoost = s.isSpeedPowerupActive ? SPEED_POWERUP_MULTIPLIER : 1;
+        const maxSpeed = (isSwimming ? SWIM_SPEED : WALK_SPEED) * speedBoost;
         const targetVx = isMoving ? moveDir.x * maxSpeed * inputMag : 0;
         const targetVz = isMoving ? moveDir.z * maxSpeed * inputMag : 0;
         const rate = isMoving ? ACCELERATION : DECELERATION;
@@ -335,14 +382,25 @@ export const Woodchuck = () => {
             if (ps.id === s.destroyTargetId) targetStructDist = structDist;
         }
 
-        // --- Vertical: terrain following & floating ---
+        // --- Vertical: terrain following, floating & diving ---
         const terrainNext = calculateTerrainHeight(nextX, nextZ);
-        let targetY = terrainNext + PLAYER_RADIUS;
+        const bedY = terrainNext + PLAYER_RADIUS;
+        const smoothK = 1 - Math.exp(-VERTICAL_SMOOTHING * delta);
+        let finalY: number;
         if (terrainNext < WATER_LEVEL) {
-            // In water: float at the surface, never below the river bed
-            targetY = Math.max(terrainNext + PLAYER_RADIUS, WATER_LEVEL + 0.2);
+            const floatY = Math.max(bedY, SURFACE_Y);
+            if (isDiving.current) {
+                finalY = moveTowards(y, bedY, DIVE_SPEED * delta);       // Sink towards the river bed
+            } else if (y < floatY) {
+                finalY = moveTowards(y, floatY, SURFACE_SPEED * delta);  // Swim back up
+            } else {
+                finalY = THREE.MathUtils.lerp(y, floatY, smoothK);       // Settle onto the surface
+            }
+            // The river bed rising under Chucky (swimming towards a bank) pushes him up quickly
+            if (finalY < bedY) finalY = THREE.MathUtils.lerp(y, bedY, smoothK);
+        } else {
+            finalY = THREE.MathUtils.lerp(y, bedY, smoothK);
         }
-        const finalY = THREE.MathUtils.lerp(y, targetY, 1 - Math.exp(-VERTICAL_SMOOTHING * delta));
 
         // --- Apply to physics (velocity lets the kinematic body push logs/mobs) ---
         const safeDelta = Math.max(0.001, delta);
@@ -357,6 +415,16 @@ export const Woodchuck = () => {
         if (storeSyncTimer.current >= STORE_SYNC_INTERVAL) {
             storeSyncTimer.current = 0;
             useGameStore.setState({ woodchuckPosition: [x, y, z] });
+        }
+
+        // Water / breath for the HUD + dive button (only written when it changes, breath in 2% steps)
+        const breathStep = Math.round(breath.current * 50) / 50;
+        if (s.isInWater !== inWater || s.breath !== breathStep) s.setWaterState(inWater, breathStep);
+
+        const nowUnderwater = inWater && y < WATER_LEVEL - 0.2;
+        if (nowUnderwater !== underwaterRef.current) {
+            underwaterRef.current = nowUnderwater;
+            setUnderwater(nowUnderwater);
         }
 
         // --- Building: placement preview + place ---
@@ -448,7 +516,10 @@ export const Woodchuck = () => {
             const targetOffset = isSwimming ? 0 : 0.4;
             visualOffsetY.current += (targetOffset - visualOffsetY.current) * (1 - Math.exp(-10 * delta));
             bodyRef.current.position.y = visualOffsetY.current;
-            bodyRef.current.rotation.x = isSwimming ? Math.PI / 2 : 0;
+            // Nose down while diving towards the bed, nose up while surfacing
+            const divePitch = isDiving.current && y > bedY + 0.05 ? 0.45 : (!isDiving.current && y < SURFACE_Y - 0.1 ? -0.35 : 0);
+            const targetPitch = isSwimming ? Math.PI / 2 + divePitch : 0;
+            bodyRef.current.rotation.x += (targetPitch - bodyRef.current.rotation.x) * (1 - Math.exp(-10 * delta));
         }
         if (headRef.current) {
             // Chomp nod
@@ -538,6 +609,14 @@ export const Woodchuck = () => {
                             <meshBasicMaterial color="#00BFFF" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
                         </mesh>
                     </>
+                )}
+                {/* Zoomies: speed sparkles */}
+                {isSpeedPowerupActive && (
+                    <Sparkles count={30} scale={[1.5, 1.5, 1.5]} size={5} speed={2} opacity={0.9} color="#7CFFB2" position={[0, 0.6, 0]} />
+                )}
+                {/* Bubbles while underwater */}
+                {underwater && (
+                    <Sparkles count={20} scale={[0.8, 2.5, 0.8]} size={4} speed={1.5} opacity={0.7} color="#E0F7FF" position={[0, 1.2, 0]} />
                 )}
             </group>
 

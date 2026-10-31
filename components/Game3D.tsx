@@ -10,7 +10,7 @@ import { Water } from './Water';
 import { Boulder, Tree, Log, LooseLog, PlacedStructureRenderer } from './WorldObjects';
 import { Woodchuck } from './Woodchuck';
 import { FoodData, MobData } from '../types';
-import { currentWoodchuckPos } from '../globals';
+import { currentWoodchuckPos, liveObjects } from '../globals';
 
 const WATER_LEVEL = -1.5;
 const MAX_FRAME_DELTA = 0.1;
@@ -237,6 +237,14 @@ const Food = React.memo(({ data }: { data: FoodData }) => {
             if (e.body && e.body.userData && (e.body.userData as any).tag === 'player') collect();
         }
     }));
+
+    // Register the live body so a save captures its real position
+    useEffect(() => {
+        // @ts-ignore
+        const mesh = ref.current as THREE.Object3D | null;
+        if (mesh) liveObjects.food.set(data.id, mesh);
+        return () => { liveObjects.food.delete(data.id); };
+    }, [data.id]);
 
     // Proximity pick-up - robust fallback for the kinematic player body
     useFrame(() => {

@@ -3,9 +3,9 @@ import { useFrame } from '@react-three/fiber';
 import { useSphere, useCylinder, useCompoundBody } from '@react-three/cannon';
 import { Edges } from '@react-three/drei';
 import * as THREE from 'three';
-import { useGameStore, getRiverWidth, calculateTerrainHeight } from '../store';
+import { useGameStore, getRiverWidth, calculateTerrainHeight, MAP_SIZE } from '../store';
 import { TreeData, LogData, LooseLogData, BoulderData, PlacedStructure, Blueprint } from '../types';
-import { currentWoodchuckPos } from '../globals';
+import { currentWoodchuckPos, liveObjects } from '../globals';
 
 const WATER_LEVEL = -1.5;
 // Logs are picked up when Chucky's centre is this close (squared) - fallback to onCollide,
@@ -296,8 +296,16 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
         tempVec: new THREE.Vector3()
     }), []);
 
-    // Initial "Pop" Explosion
+    // Register the live body so a save captures its real position
     useEffect(() => {
+        const mesh = ref.current as THREE.Object3D | null;
+        if (mesh) liveObjects.looseLogs.set(data.id, mesh);
+        return () => { liveObjects.looseLogs.delete(data.id); };
+    }, [data.id]);
+
+    // Initial "Pop" Explosion (skipped for logs restored from a save)
+    useEffect(() => {
+        if (data.settled) return;
         const angle = Math.random() * Math.PI * 2;
         // Increased force to scatter more
         const force = 10 + Math.random() * 8; 
@@ -331,6 +339,12 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
             const age = now - data.createdAt;
 
             if (age > 120000) {
+                expireLooseLog(data.id);
+                return;
+            }
+
+            // Drifted off the map (down the river / over the edge): it's gone
+            if (Math.abs(pos.x) > MAP_SIZE / 2 - 2 || Math.abs(pos.z) > MAP_SIZE / 2 - 2 || pos.y < -40) {
                 expireLooseLog(data.id);
                 return;
             }

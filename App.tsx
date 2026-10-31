@@ -1,49 +1,13 @@
 import React, { Component, useEffect, useState, ReactNode } from 'react';
 import { Game3D } from './components/Game3D';
 import { Controls } from './components/Controls';
-import { useGameStore } from './store';
+import { useGameStore, isNightTime, BERRIES_FOR_ZOOMIES } from './store';
 import { audioService } from './services/audio';
+import { persistence, SaveSlotInfo, LeaderboardEntry, SAVE_SLOTS } from './services/persistence';
 
-const PowerupTimerUI = () => {
-    const isTreePowerupActive = useGameStore(state => state.isTreePowerupActive);
-    const isLogPowerupActive = useGameStore(state => state.isLogPowerupActive);
-    const treePowerupEndTime = useGameStore(state => state.treePowerupEndTime);
-    const logPowerupEndTime = useGameStore(state => state.logPowerupEndTime);
-    
-    // Force re-render every second to update timer
-    const [_, setTick] = useState(0);
-    useEffect(() => {
-        if (!isTreePowerupActive && !isLogPowerupActive) return;
-        const interval = setInterval(() => setTick(t => t + 1), 1000);
-        return () => clearInterval(interval);
-    }, [isTreePowerupActive, isLogPowerupActive]);
-
-    if (!isTreePowerupActive && !isLogPowerupActive) return null;
-
-    return (
-        <div className="absolute top-40 left-1/2 transform -translate-x-1/2 flex flex-col gap-2 items-center pointer-events-none z-30 w-full">
-            {isTreePowerupActive && (
-                <div className="bg-black/60 backdrop-blur-md text-white px-4 py-2 rounded-xl border-2 border-orange-500 shadow-lg flex items-center gap-3 min-w-[200px]">
-                    <span className="text-2xl">🪓</span>
-                    <div className="flex flex-col flex-1">
-                        <span className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">Mega Chomp</span>
-                        <span className="font-mono font-bold text-lg leading-none">{Math.max(0, Math.ceil((treePowerupEndTime - Date.now()) / 1000))}s</span>
-                    </div>
-                </div>
-            )}
-            {isLogPowerupActive && (
-                <div className="bg-black/60 backdrop-blur-md text-white px-4 py-2 rounded-xl border-2 border-blue-500 shadow-lg flex items-center gap-3 min-w-[200px]">
-                    <span className="text-2xl">🧲</span>
-                    <div className="flex flex-col flex-1">
-                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Magnet</span>
-                        <span className="font-mono font-bold text-lg leading-none">{Math.max(0, Math.ceil((logPowerupEndTime - Date.now()) / 1000))}s</span>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
+// =====================================================================
+// Error boundary
+// =====================================================================
 interface ErrorBoundaryProps {
   children?: ReactNode;
 }
@@ -77,7 +41,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
             <pre className="bg-black/50 p-2 rounded text-left text-xs overflow-auto max-w-sm mx-auto">
               {this.state.error?.message}
             </pre>
-            <button 
+            <button
               className="mt-4 bg-white text-red-900 px-4 py-2 rounded font-bold"
               onClick={() => window.location.reload()}
             >
@@ -92,64 +56,42 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
-const BuildMenu = () => {
-    const blueprints = useGameStore(state => state.blueprints);
-    const woodCount = useGameStore(state => state.woodCount);
-    const selectBlueprint = useGameStore(state => state.selectBlueprint);
-    const closeBuildMenu = useGameStore(state => state.closeBuildMenu);
-    
+// =====================================================================
+// Small shared bits
+// =====================================================================
+const formatDate = (ms: number) => {
+    const d = new Date(ms);
+    return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+const Bar = ({ value, color, className = '' }: { value: number; color: string; className?: string }) => (
+    <div className={`flex-1 h-1.5 bg-black/50 rounded-full overflow-hidden border border-white/10 ${className}`}>
+        <div className={`h-full ${color} transition-all duration-150`} style={{ width: `${Math.max(0, Math.min(100, value * 100))}%` }} />
+    </div>
+);
+
+const MenuButton = ({ children, onClick, variant = 'default', disabled = false }: {
+    children: ReactNode; onClick: () => void; variant?: 'default' | 'primary' | 'danger'; disabled?: boolean
+}) => {
+    const styles = {
+        default: 'bg-white/10 hover:bg-white/20 border-white/15 text-white',
+        primary: 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 border-amber-300/30 text-white',
+        danger: 'bg-red-700/80 hover:bg-red-600 border-red-300/30 text-white',
+    }[variant];
     return (
-        <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-6 animate-in fade-in duration-200">
-            <h2 className="text-4xl font-black text-white mb-6 tracking-tighter drop-shadow-lg">BLUEPRINTS</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full max-w-4xl overflow-y-auto max-h-[60vh] p-2">
-                {blueprints.map(bp => (
-                    <button 
-                        key={bp.id}
-                        disabled={!bp.unlocked || woodCount < bp.cost}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            selectBlueprint(bp.id);
-                        }}
-                        className={`
-                            relative p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all
-                            ${!bp.unlocked 
-                                ? 'bg-gray-900/80 border-gray-700 opacity-60 cursor-not-allowed' 
-                                : woodCount < bp.cost 
-                                    ? 'bg-red-900/50 border-red-800 cursor-not-allowed' 
-                                    : 'bg-black/60 border-amber-500 hover:bg-amber-900/40 hover:scale-105 active:scale-95 shadow-xl'}
-                        `}
-                    >
-                        {!bp.unlocked && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-2xl z-10">
-                                <span className="text-4xl">🔒</span>
-                            </div>
-                        )}
-                        <div className="w-16 h-16 bg-black/30 rounded-full flex items-center justify-center mb-2 border border-white/10">
-                            <span className="text-3xl">🏗️</span>
-                        </div>
-                        <h3 className="text-white font-bold text-lg leading-none text-center mb-1">{bp.name}</h3>
-                        <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold ${woodCount < bp.cost ? 'bg-red-900/50 text-red-200' : 'bg-amber-900/50 text-amber-200'}`}>
-                            <span>🪵</span>
-                            <span className="font-mono">{bp.cost}</span>
-                        </div>
-                        {!bp.unlocked && bp.unlockScore !== undefined && bp.unlockScore > 0 && (
-                            <div className="text-[10px] text-amber-400 font-bold mt-2 uppercase tracking-wider">
-                                Need {bp.unlockScore} Pts
-                            </div>
-                        )}
-                    </button>
-                ))}
-            </div>
-            <button 
-                onClick={closeBuildMenu}
-                className="mt-8 bg-white text-black font-black py-3 px-10 rounded-full hover:bg-gray-200 shadow-xl transition-transform active:scale-95"
-            >
-                CLOSE MENU
-            </button>
-        </div>
+        <button
+            disabled={disabled}
+            onClick={onClick}
+            className={`w-full py-2.5 px-4 rounded-xl border font-bold text-sm transition-all active:scale-95 disabled:opacity-40 disabled:active:scale-100 ${styles}`}
+        >
+            {children}
+        </button>
     );
 };
 
+// =====================================================================
+// HUD (compact, top-left)
+// =====================================================================
 const ComboUI = () => {
     const combo = useGameStore(state => state.combo);
     const endCombo = useGameStore(state => state.endCombo);
@@ -159,12 +101,12 @@ const ComboUI = () => {
 
     useEffect(() => {
         if (!combo.active || isPaused) return;
-        
+
         const interval = setInterval(() => {
             const now = Date.now();
             let duration = 0;
             let start = 0;
-            
+
             if (combo.multiplier === 1) {
                 duration = 15000; // 15s for first level
                 start = combo.startTime;
@@ -172,74 +114,143 @@ const ComboUI = () => {
                 duration = 5000; // 5s for subsequent levels (burst window)
                 start = combo.levelStartTime;
             }
-            
+
             const elapsed = now - start;
             const remaining = Math.max(0, duration - elapsed);
-            
+
             if (remaining <= 0) {
                 endCombo();
             }
-            
+
             setTimeLeft(remaining);
             setProgress((remaining / duration) * 100);
-            
+
         }, 100);
-        
+
         return () => clearInterval(interval);
     }, [combo.active, combo.multiplier, combo.startTime, combo.levelStartTime, endCombo, isPaused]);
-    
-    if (!combo.active) return null;
-    
-    return (
-        <div className="absolute top-48 left-4 z-30 flex flex-col items-start pointer-events-none">
-            {combo.multiplier > 1 && (
-                <div className="text-5xl font-black text-amber-400 drop-shadow-[0_4px_0_rgba(0,0,0,1)] italic tracking-tighter transform -rotate-6 animate-bounce mb-2 ml-2">
-                    {combo.multiplier}x
-                </div>
-            )}
-            <div className="bg-black/60 backdrop-blur-md p-3 rounded-xl border border-white/10 w-40 shadow-lg">
-                <div className="flex justify-between text-white text-[10px] font-bold mb-1 uppercase tracking-wider">
-                    <span>Combo Timer</span>
-                    <span className="font-mono text-amber-400">{(timeLeft / 1000).toFixed(1)}s</span>
-                </div>
-                <div className="w-full h-2 bg-black/50 rounded-full overflow-hidden border border-white/10 mb-1">
-                    <div 
-                        className={`h-full transition-all duration-100 ${timeLeft < 2000 ? 'bg-red-500' : 'bg-amber-400'}`}
-                        style={{ width: `${progress}%` }}
-                    />
-                </div>
-                <div className="text-left text-white/70 text-[9px] font-medium">
-                    {combo.multiplier === 1 ? `${combo.logsCollected}/2 to Start Multiplier` : `${combo.logsSinceLastLevel}/2 to Next Level`}
-                </div>
-            </div>
-        </div>
-    );
-}
 
-const ScoreUI = () => {
-    const score = useGameStore(state => state.score) || 0;
-    const totalLogs = useGameStore(state => state.totalLogsCollected) || 0;
-    
+    if (!combo.active) return null;
+
     return (
-        <div className="absolute top-4 right-4 z-30 flex flex-col items-end pointer-events-none">
-            <div className="bg-black/60 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-xl min-w-[140px]">
-                <div className="text-amber-400 text-[10px] font-bold uppercase tracking-widest text-right mb-0.5">Score</div>
-                <div className="text-white text-3xl font-black text-right leading-none tracking-tight">{score.toLocaleString()}</div>
-                <div className="w-full h-px bg-white/10 my-2"></div>
-                <div className="flex justify-between items-center text-[10px] text-white/60 font-bold uppercase tracking-wider">
-                    <span>Logs</span>
-                    <span className="text-white text-sm">{totalLogs}</span>
-                </div>
+        <div className="bg-black/50 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 w-full">
+            <div className="flex justify-between items-center text-white text-[9px] font-bold uppercase tracking-wider">
+                <span>Combo {combo.multiplier > 1 && <span className="text-amber-400 text-xs italic">{combo.multiplier}x</span>}</span>
+                <span className="font-mono text-amber-400">{(timeLeft / 1000).toFixed(1)}s</span>
+            </div>
+            <div className="w-full h-1 bg-black/50 rounded-full overflow-hidden my-0.5">
+                <div
+                    className={`h-full transition-all duration-100 ${timeLeft < 2000 ? 'bg-red-500' : 'bg-amber-400'}`}
+                    style={{ width: `${progress}%` }}
+                />
+            </div>
+            <div className="text-white/60 text-[8px]">
+                {combo.multiplier === 1 ? `${combo.logsCollected}/2 to Start Multiplier` : `${combo.logsSinceLastLevel}/2 to Next Level`}
             </div>
         </div>
     );
 };
 
+const Hud = () => {
+    const health = useGameStore(state => state.health);
+    const maxHealth = useGameStore(state => state.maxHealth);
+    const woodCount = useGameStore(state => state.woodCount);
+    const score = useGameStore(state => state.score) || 0;
+    const day = useGameStore(state => state.day);
+    const isNight = useGameStore(state => isNightTime(state.timeOfDay));
+    const berriesEaten = useGameStore(state => state.berriesEaten);
+    const breath = useGameStore(state => state.breath);
+    const activeTree = useGameStore(state =>
+        state.activeTreeId ? (state.trees.find(t => t.id === state.activeTreeId) ?? null) : null
+    );
+
+    const overheal = health > maxHealth;
+
+    return (
+        <div className="absolute top-2 left-2 z-30 pointer-events-none flex flex-col gap-1 w-40">
+            <div className="bg-black/50 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg space-y-1 text-white">
+                {/* Health */}
+                <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] leading-none">❤️</span>
+                    <Bar value={Math.min(health, maxHealth) / maxHealth} color={overheal ? 'bg-gradient-to-r from-amber-400 to-yellow-300' : 'bg-gradient-to-r from-red-500 to-red-400'} />
+                    <span className={`text-[9px] font-mono font-bold w-6 text-right ${overheal ? 'text-yellow-300' : ''}`}>{Math.ceil(health)}</span>
+                </div>
+                {/* Wood + score */}
+                <div className="flex items-center justify-between text-[11px] font-bold leading-none">
+                    <span>🪵 {woodCount}</span>
+                    <span className="text-amber-300">⭐ {score.toLocaleString()}</span>
+                </div>
+                {/* Day + berries */}
+                <div className="flex items-center justify-between text-[9px] text-white/70 font-bold leading-none">
+                    <span>{isNight ? '🌙' : '☀️'} Day {day}</span>
+                    <span title="Berries towards Zoomies">🫐 {berriesEaten}/{BERRIES_FOR_ZOOMIES}</span>
+                </div>
+                {/* Tree being chomped */}
+                {activeTree && (
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] leading-none">🌲</span>
+                        <Bar value={activeTree.health / activeTree.maxHealth} color="bg-gradient-to-r from-green-600 to-green-400" />
+                        <span className="text-[9px] font-mono w-6 text-right">{Math.ceil((activeTree.health / activeTree.maxHealth) * 100)}%</span>
+                    </div>
+                )}
+                {/* Breath (only when not full) */}
+                {breath < 0.999 && (
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] leading-none">🫧</span>
+                        <Bar value={breath} color={breath < 0.25 ? 'bg-red-500 animate-pulse' : 'bg-cyan-400'} />
+                        <span className="text-[9px] font-mono w-6 text-right">{Math.round(breath * 100)}%</span>
+                    </div>
+                )}
+            </div>
+            <ComboUI />
+        </div>
+    );
+};
+
+// Powerup pills: right side, under the buttons
+const PowerupPills = () => {
+    const isTreePowerupActive = useGameStore(state => state.isTreePowerupActive);
+    const isLogPowerupActive = useGameStore(state => state.isLogPowerupActive);
+    const isSpeedPowerupActive = useGameStore(state => state.isSpeedPowerupActive);
+    const treePowerupEndTime = useGameStore(state => state.treePowerupEndTime);
+    const logPowerupEndTime = useGameStore(state => state.logPowerupEndTime);
+    const speedPowerupEndTime = useGameStore(state => state.speedPowerupEndTime);
+    const isPaused = useGameStore(state => state.isPaused);
+
+    const anyActive = isTreePowerupActive || isLogPowerupActive || isSpeedPowerupActive;
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        if (!anyActive || isPaused) return;
+        const interval = setInterval(() => setTick(t => t + 1), 250);
+        return () => clearInterval(interval);
+    }, [anyActive, isPaused]);
+
+    if (!anyActive) return null;
+    const secs = (end: number) => Math.max(0, Math.ceil((end - Date.now()) / 1000));
+
+    const pill = (icon: string, label: string, end: number, border: string) => (
+        <div className={`bg-black/55 backdrop-blur-sm text-white pl-1.5 pr-2 py-0.5 rounded-full border ${border} shadow flex items-center gap-1 text-[10px] font-bold`}>
+            <span className="text-xs">{icon}</span>
+            <span className="uppercase tracking-wide">{label}</span>
+            <span className="font-mono">{secs(end)}s</span>
+        </div>
+    );
+
+    return (
+        <div className="absolute top-[52px] right-2 z-30 flex flex-col gap-1 items-end pointer-events-none">
+            {isTreePowerupActive && pill('🪓', 'Mega Chomp', treePowerupEndTime, 'border-orange-500')}
+            {isLogPowerupActive && pill('🧲', 'Magnet', logPowerupEndTime, 'border-blue-500')}
+            {isSpeedPowerupActive && pill('⚡', 'Zoomies', speedPowerupEndTime, 'border-emerald-400')}
+        </div>
+    );
+};
+
+// Toast above the joystick (keeps the top of the screen clear)
 const NotificationUI = () => {
     const notification = useGameStore(state => state.notification);
     const dismissNotification = useGameStore(state => state.dismissNotification);
     const openBuildMenu = useGameStore(state => state.openBuildMenu);
-    
+
     useEffect(() => {
         if (notification) {
             const timer = setTimeout(() => {
@@ -248,37 +259,36 @@ const NotificationUI = () => {
             return () => clearTimeout(timer);
         }
     }, [notification, dismissNotification]);
-    
+
     if (!notification) return null;
-    
+
     const handleClick = () => {
         dismissNotification();
         if (notification.type === 'unlock') {
             openBuildMenu();
         }
     };
-    
+
     return (
-        <div className="fixed top-24 inset-x-0 z-50 flex justify-center pointer-events-none">
-            <div 
-                className="animate-in slide-in-from-top-4 duration-300 cursor-pointer pointer-events-auto w-full max-w-sm px-4"
+        <div className="fixed bottom-40 inset-x-0 z-50 flex justify-center pointer-events-none px-4">
+            <div
+                className="animate-in slide-in-from-bottom-4 duration-300 cursor-pointer pointer-events-auto w-full max-w-xs"
                 onClick={handleClick}
             >
-                <div className="bg-black/80 backdrop-blur-xl p-4 rounded-2xl border border-amber-500/50 shadow-2xl flex items-center gap-4 hover:scale-105 transition-transform">
-                    <div className="text-3xl bg-amber-500/20 p-2 rounded-xl border border-amber-500/30">
+                <div className="bg-black/80 backdrop-blur-xl px-3 py-2 rounded-xl border border-amber-500/50 shadow-2xl flex items-center gap-2.5">
+                    <div className="text-xl">
                         {notification.type === 'unlock' ? '🔓' : notification.type === 'info' ? '⚡' : '🏆'}
                     </div>
                     <div className="flex-1 text-left">
-                        <div className="text-amber-400 font-black text-xs uppercase tracking-widest mb-1">
+                        <div className="text-amber-400 font-black text-[10px] uppercase tracking-widest">
                             {notification.title}
                         </div>
-                        <div className="text-white font-bold text-sm leading-tight">
+                        <div className="text-white font-semibold text-xs leading-snug">
                             {notification.message}
                         </div>
                         {notification.type === 'unlock' && (
-                            <div className="text-[9px] text-white/50 mt-1.5 uppercase tracking-wider font-bold flex items-center gap-1">
-                                <span>Tap to Open Menu</span>
-                                <span className="text-xs">→</span>
+                            <div className="text-[8px] text-white/50 mt-0.5 uppercase tracking-wider font-bold">
+                                Tap to open blueprints →
                             </div>
                         )}
                     </div>
@@ -288,18 +298,384 @@ const NotificationUI = () => {
     );
 };
 
-export default function App() {
-  // Selectors only - subscribing to the whole store re-rendered the entire app (and the
-  // 3D scene) on every store change, e.g. every frame while chomping.
-  const phase = useGameStore(state => state.phase);
-  const startGame = useGameStore(state => state.startGame);
-  const woodCount = useGameStore(state => state.woodCount);
+// =====================================================================
+// Build menu
+// =====================================================================
+const BuildMenu = () => {
+    const blueprints = useGameStore(state => state.blueprints);
+    const woodCount = useGameStore(state => state.woodCount);
+    const selectBlueprint = useGameStore(state => state.selectBlueprint);
+    const closeBuildMenu = useGameStore(state => state.closeBuildMenu);
 
-  // Derived state for the active tree's health (returns the existing tree object - stable reference)
-  const activeTree = useGameStore(state =>
-      state.activeTreeId ? (state.trees.find(t => t.id === state.activeTreeId) ?? null) : null
-  );
-  
+    return (
+        <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4 animate-in fade-in duration-200">
+            <h2 className="text-2xl font-black text-white mb-1 tracking-tight drop-shadow-lg">BLUEPRINTS</h2>
+            <div className="text-xs text-amber-300 font-bold mb-3">🪵 {woodCount} wood available</div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 w-full max-w-3xl overflow-y-auto max-h-[65vh] p-1">
+                {blueprints.map(bp => (
+                    <button
+                        key={bp.id}
+                        disabled={!bp.unlocked || woodCount < bp.cost}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            selectBlueprint(bp.id);
+                        }}
+                        className={`
+                            relative p-2.5 rounded-xl border-2 flex flex-col items-center gap-1 transition-all
+                            ${!bp.unlocked
+                                ? 'bg-gray-900/80 border-gray-700 opacity-60 cursor-not-allowed'
+                                : woodCount < bp.cost
+                                    ? 'bg-red-900/50 border-red-800 cursor-not-allowed'
+                                    : 'bg-black/60 border-amber-500 hover:bg-amber-900/40 hover:scale-105 active:scale-95 shadow-xl'}
+                        `}
+                    >
+                        {!bp.unlocked && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-xl z-10">
+                                <span className="text-2xl">🔒</span>
+                            </div>
+                        )}
+                        <span className="text-xl">🏗️</span>
+                        <h3 className="text-white font-bold text-xs leading-tight text-center">{bp.name}</h3>
+                        <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${woodCount < bp.cost ? 'bg-red-900/50 text-red-200' : 'bg-amber-900/50 text-amber-200'}`}>
+                            <span>🪵</span>
+                            <span className="font-mono">{bp.cost}</span>
+                        </div>
+                        {!bp.unlocked && bp.unlockScore !== undefined && bp.unlockScore > 0 && (
+                            <div className="text-[9px] text-amber-400 font-bold uppercase tracking-wider relative z-20">
+                                Need {bp.unlockScore} Pts
+                            </div>
+                        )}
+                    </button>
+                ))}
+            </div>
+            <button
+                onClick={closeBuildMenu}
+                className="mt-4 bg-white text-black font-black py-2 px-8 rounded-full hover:bg-gray-200 shadow-xl transition-transform active:scale-95 text-sm"
+            >
+                CLOSE
+            </button>
+        </div>
+    );
+};
+
+// =====================================================================
+// Save slots / leaderboard
+// =====================================================================
+const SlotList = ({ mode, onDone }: { mode: 'save' | 'load'; onDone?: () => void }) => {
+    const saveGame = useGameStore(state => state.saveGame);
+    const loadGame = useGameStore(state => state.loadGame);
+    const [slots, setSlots] = useState<(SaveSlotInfo | null)[]>(() => persistence.listSlots());
+    const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+    const [confirmSlot, setConfirmSlot] = useState<number | null>(null);
+
+    if (!persistence.isAvailable()) {
+        return <div className="text-sm text-red-300 text-center py-4">Saving isn't available in this browser (private mode or storage blocked).</div>;
+    }
+
+    const doSave = (slot: number) => {
+        const result = saveGame(slot);
+        setMessage({ ok: result.ok, text: result.message });
+        setSlots(persistence.listSlots());
+        setConfirmSlot(null);
+    };
+
+    const handleClick = (slot: number, info: SaveSlotInfo | null) => {
+        if (mode === 'save') {
+            if (info && confirmSlot !== slot) { setConfirmSlot(slot); return; } // Overwrite needs a second tap
+            doSave(slot);
+        } else if (info) {
+            const result = loadGame(slot);
+            setMessage({ ok: result.ok, text: result.message });
+            if (result.ok) onDone?.();
+        }
+    };
+
+    return (
+        <div className="space-y-2">
+            {Array.from({ length: SAVE_SLOTS }, (_, i) => i + 1).map(slot => {
+                const info = slots[slot - 1];
+                const disabled = mode === 'load' && !info;
+                const confirming = confirmSlot === slot;
+                return (
+                    <button
+                        key={slot}
+                        disabled={disabled}
+                        onClick={() => handleClick(slot, info)}
+                        className={`w-full text-left px-3 py-2 rounded-xl border transition-all active:scale-[0.98] disabled:opacity-40
+                            ${confirming ? 'bg-red-900/60 border-red-400' : 'bg-white/5 hover:bg-white/10 border-white/15'}`}
+                    >
+                        <div className="flex justify-between items-center">
+                            <span className="font-black text-sm text-white">Slot {slot}</span>
+                            <span className="text-[10px] text-white/50">{info ? formatDate(info.savedAt) : 'Empty'}</span>
+                        </div>
+                        {info && (
+                            <div className="text-[11px] text-white/70 mt-0.5">
+                                ⭐ {info.score.toLocaleString()} · 🪵 {info.woodCount} · Day {info.day}
+                            </div>
+                        )}
+                        {confirming && <div className="text-[11px] text-red-200 font-bold mt-0.5">Tap again to overwrite</div>}
+                    </button>
+                );
+            })}
+            {message && (
+                <div className={`text-xs text-center font-bold ${message.ok ? 'text-green-300' : 'text-red-300'}`}>{message.text}</div>
+            )}
+        </div>
+    );
+};
+
+const LeaderboardTable = ({ highlightRank }: { highlightRank?: number }) => {
+    const [entries] = useState<LeaderboardEntry[]>(() => persistence.getLeaderboard());
+
+    if (entries.length === 0) {
+        return <div className="text-sm text-white/60 text-center py-6">No scores yet - be the first chomper on the board!</div>;
+    }
+
+    return (
+        <div className="max-h-[45vh] overflow-y-auto rounded-xl border border-white/10">
+            <table className="w-full text-xs text-white">
+                <thead className="bg-white/10 text-[10px] uppercase tracking-wider text-white/60 sticky top-0">
+                    <tr>
+                        <th className="py-1.5 px-2 text-left">#</th>
+                        <th className="py-1.5 px-2 text-left">Name</th>
+                        <th className="py-1.5 px-2 text-right">Score</th>
+                        <th className="py-1.5 px-2 text-right">Day</th>
+                        <th className="py-1.5 px-2 text-right">Logs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {entries.map((e, i) => (
+                        <tr key={`${e.date}-${i}`} className={`border-t border-white/5 ${highlightRank === i + 1 ? 'bg-amber-500/30 font-bold' : ''}`}>
+                            <td className="py-1.5 px-2">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</td>
+                            <td className="py-1.5 px-2 truncate max-w-[110px]">{e.name}</td>
+                            <td className="py-1.5 px-2 text-right font-mono">{e.score.toLocaleString()}</td>
+                            <td className="py-1.5 px-2 text-right">{e.day}</td>
+                            <td className="py-1.5 px-2 text-right">{e.logs}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+// Panel wrapper used by the menus
+const Panel = ({ title, children, onBack }: { title: string; children: ReactNode; onBack?: () => void }) => (
+    <div className="w-full max-w-sm bg-black/70 backdrop-blur-xl border border-white/15 rounded-2xl p-4 shadow-2xl text-white">
+        <div className="flex items-center mb-3">
+            {onBack && (
+                <button onClick={onBack} className="mr-2 w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-sm" aria-label="Back">←</button>
+            )}
+            <h2 className="text-lg font-black tracking-tight flex-1">{title}</h2>
+        </div>
+        {children}
+    </div>
+);
+
+// =====================================================================
+// In-game menu (pauses the game)
+// =====================================================================
+type MenuView = 'main' | 'save' | 'load' | 'leaderboard' | 'confirmNew';
+
+const GameMenu = () => {
+    const closeGameMenu = useGameStore(state => state.closeGameMenu);
+    const startGame = useGameStore(state => state.startGame);
+    const score = useGameStore(state => state.score);
+    const day = useGameStore(state => state.day);
+    const [view, setView] = useState<MenuView>('main');
+
+    return (
+        <div className="absolute inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 animate-in fade-in duration-150">
+            {view === 'main' && (
+                <Panel title="Paused">
+                    <div className="text-xs text-white/60 mb-3">⭐ {score.toLocaleString()} · Day {day}</div>
+                    <div className="space-y-2">
+                        <MenuButton variant="primary" onClick={closeGameMenu}>▶ Resume</MenuButton>
+                        <MenuButton onClick={() => setView('save')}>💾 Save Game</MenuButton>
+                        <MenuButton onClick={() => setView('load')}>📂 Load Game</MenuButton>
+                        <MenuButton onClick={() => setView('leaderboard')}>🏆 Leaderboard</MenuButton>
+                        <MenuButton variant="danger" onClick={() => setView('confirmNew')}>🌱 New Game</MenuButton>
+                    </div>
+                </Panel>
+            )}
+            {view === 'save' && (
+                <Panel title="Save Game" onBack={() => setView('main')}>
+                    <SlotList mode="save" />
+                </Panel>
+            )}
+            {view === 'load' && (
+                <Panel title="Load Game" onBack={() => setView('main')}>
+                    <SlotList mode="load" />
+                </Panel>
+            )}
+            {view === 'leaderboard' && (
+                <Panel title="Leaderboard" onBack={() => setView('main')}>
+                    <LeaderboardTable />
+                </Panel>
+            )}
+            {view === 'confirmNew' && (
+                <Panel title="Start a new game?" onBack={() => setView('main')}>
+                    <p className="text-sm text-white/70 mb-4">Unsaved progress in this run will be lost. A brand new forest grows for the new game.</p>
+                    <div className="space-y-2">
+                        <MenuButton variant="danger" onClick={() => startGame()}>Yes, new game</MenuButton>
+                        <MenuButton onClick={() => setView('main')}>Cancel</MenuButton>
+                    </div>
+                </Panel>
+            )}
+        </div>
+    );
+};
+
+const GameMenuOverlay = () => {
+    const isGameMenuOpen = useGameStore(state => state.isGameMenuOpen);
+    return isGameMenuOpen ? <GameMenu /> : null;
+};
+
+const BuildMenuOverlay = () => {
+    const isBuildMenuOpen = useGameStore(state => state.isBuildMenuOpen);
+    return isBuildMenuOpen ? <BuildMenu /> : null;
+};
+
+// =====================================================================
+// Start screen
+// =====================================================================
+const StartScreen = () => {
+    const startGame = useGameStore(state => state.startGame);
+    const [view, setView] = useState<'main' | 'load' | 'leaderboard'>('main');
+    const hasSaves = persistence.listSlots().some(s => s !== null);
+
+    if (view === 'load') {
+        return (
+            <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+                <Panel title="Load Game" onBack={() => setView('main')}><SlotList mode="load" /></Panel>
+            </div>
+        );
+    }
+    if (view === 'leaderboard') {
+        return (
+            <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+                <Panel title="Leaderboard" onBack={() => setView('main')}><LeaderboardTable /></Panel>
+            </div>
+        );
+    }
+
+    return (
+        <div className="absolute inset-0 z-40 bg-black/80 flex flex-col items-center justify-center text-white p-4 backdrop-blur-sm overflow-y-auto">
+            <h1 className="text-5xl md:text-7xl font-black mb-3 tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-amber-400 to-amber-600 drop-shadow-lg text-center leading-none">
+                CHUCKY<br/>THE WOODCHUCK
+            </h1>
+            <p className="italic text-sm md:text-base opacity-90 font-serif mb-4 text-gray-300 text-center">The river is flowing. The dam must be built.</p>
+
+            <div className="bg-white/5 p-3 rounded-xl border border-white/10 text-left space-y-1.5 text-xs shadow-xl max-w-sm w-full mb-5 text-gray-300">
+                <p>🕹️ <b className="text-amber-400 uppercase">Move</b> with the joystick (or WASD)</p>
+                <p>🪓 <b className="text-amber-400 uppercase">Chomp</b> trees by bumping into them</p>
+                <p>🤿 <b className="text-amber-400 uppercase">Dive</b> in the river (hold 🤿 / Space) - watch your breath</p>
+                <p>🫐 <b className="text-amber-400 uppercase">Zoomies</b>: eat {BERRIES_FOR_ZOOMIES} berries for a speed boost</p>
+                <p>⚡ <b className="text-amber-400 uppercase">Combo</b> log pickups for multipliers</p>
+                <p>🏗️ <b className="text-amber-400 uppercase">Build</b> dams to score big · 🌙 beware the night</p>
+            </div>
+
+            <div className="w-full max-w-xs space-y-2">
+                <MenuButton variant="primary" onClick={() => startGame()}>START CHOMPING</MenuButton>
+                <div className="grid grid-cols-2 gap-2">
+                    <MenuButton onClick={() => setView('load')} disabled={!hasSaves}>📂 Load</MenuButton>
+                    <MenuButton onClick={() => setView('leaderboard')}>🏆 Scores</MenuButton>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// =====================================================================
+// Game over
+// =====================================================================
+const GameOverScreen = () => {
+    const startGame = useGameStore(state => state.startGame);
+    const submitScore = useGameStore(state => state.submitScore);
+    const scoreSubmitted = useGameStore(state => state.scoreSubmitted);
+    const score = useGameStore(state => state.score) || 0;
+    const totalLogs = useGameStore(state => state.totalLogsCollected) || 0;
+    const structures = useGameStore(state => state.placedStructures.length);
+    const day = useGameStore(state => state.day);
+
+    const [name, setName] = useState(() => persistence.getPlayerName());
+    const [rank, setRank] = useState<number | null>(null);
+    const [view, setView] = useState<'main' | 'load'>('main');
+
+    const handleSubmit = (e?: React.FormEvent) => {
+        e?.preventDefault();
+        if (scoreSubmitted) return;
+        setRank(submitScore(name));
+    };
+
+    if (view === 'load') {
+        return (
+            <div className="absolute inset-0 z-50 bg-red-950/90 flex items-center justify-center p-4 backdrop-blur-sm">
+                <Panel title="Load Game" onBack={() => setView('main')}><SlotList mode="load" /></Panel>
+            </div>
+        );
+    }
+
+    return (
+        <div className="absolute inset-0 z-50 bg-red-950/90 flex flex-col items-center justify-center text-white p-4 animate-in fade-in duration-500 backdrop-blur-sm overflow-y-auto">
+            <h1 className="text-5xl font-black tracking-tighter text-white drop-shadow-xl">GAME OVER</h1>
+            <div className="text-sm font-bold mb-4 opacity-80 text-red-200">The dam remains unfinished...</div>
+
+            <div className="w-full max-w-sm bg-black/40 p-4 rounded-2xl border border-white/10 text-center mb-3 backdrop-blur-md shadow-2xl">
+                <div className="text-amber-400 font-bold uppercase tracking-widest text-[10px]">Final Score</div>
+                <div className="text-5xl font-black text-white mb-3 drop-shadow-lg tracking-tight">{score.toLocaleString()}</div>
+                <div className="grid grid-cols-3 gap-2 text-left">
+                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                        <div className="text-[9px] uppercase text-white/50 font-bold">Logs</div>
+                        <div className="text-lg font-bold">{totalLogs}</div>
+                    </div>
+                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                        <div className="text-[9px] uppercase text-white/50 font-bold">Built</div>
+                        <div className="text-lg font-bold">{structures}</div>
+                    </div>
+                    <div className="bg-white/5 p-2 rounded-xl border border-white/5">
+                        <div className="text-[9px] uppercase text-white/50 font-bold">Day</div>
+                        <div className="text-lg font-bold">{day}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="w-full max-w-sm mb-3">
+                {!scoreSubmitted ? (
+                    <form onSubmit={handleSubmit} className="flex gap-2">
+                        <input
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            maxLength={16}
+                            placeholder="Your name"
+                            className="flex-1 select-text bg-black/40 border border-white/20 rounded-xl px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-amber-400"
+                        />
+                        <button type="submit" className="bg-amber-500 hover:bg-amber-400 text-black font-black px-4 rounded-xl text-sm active:scale-95">
+                            Submit
+                        </button>
+                    </form>
+                ) : (
+                    <div className="text-center text-xs font-bold text-amber-300 mb-1">
+                        {rank && rank > 0 ? `You placed #${rank} on the leaderboard!` : 'Score recorded - not quite top 10 this time.'}
+                    </div>
+                )}
+                {scoreSubmitted && <div className="mt-2"><LeaderboardTable highlightRank={rank ?? undefined} /></div>}
+            </div>
+
+            <div className="w-full max-w-sm grid grid-cols-2 gap-2">
+                <MenuButton variant="primary" onClick={() => startGame()}>TRY AGAIN</MenuButton>
+                <MenuButton onClick={() => setView('load')} disabled={!persistence.listSlots().some(s => s !== null)}>📂 Load</MenuButton>
+            </div>
+        </div>
+    );
+};
+
+// =====================================================================
+// App
+// =====================================================================
+export default function App() {
+  const phase = useGameStore(state => state.phase);
+
   useEffect(() => {
      const unlock = () => {
          audioService.resume();
@@ -309,7 +685,7 @@ export default function App() {
      };
      window.addEventListener('click', unlock);
      window.addEventListener('touchstart', unlock);
-     
+
      return () => {
          window.removeEventListener('click', unlock);
          window.removeEventListener('touchstart', unlock);
@@ -319,99 +695,16 @@ export default function App() {
   return (
     <ErrorBoundary>
         <div className="w-full h-full bg-sky-300 relative overflow-hidden select-none font-sans">
-            <ScoreUI />
-            <NotificationUI />
-            <PowerupTimerUI />
-            {phase === 'START' && (
-                <div className="absolute inset-0 z-40 bg-black/80 flex flex-col items-center justify-center text-white p-6 backdrop-blur-sm">
-                    <h1 className="text-6xl md:text-8xl font-black mb-6 tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-amber-400 to-amber-600 drop-shadow-lg text-center leading-none">
-                        CHUCKY<br/>THE<br/>WOODCHUCK
-                    </h1>
-                    <div className="max-w-md text-center text-sm mb-10 text-gray-300 space-y-4">
-                        <p className="italic text-lg opacity-90 font-serif">The river is flowing. The dam must be built.</p>
-                        
-                        <div className="bg-white/5 p-6 rounded-2xl border border-white/10 text-left space-y-3 text-sm shadow-xl">
-                            <p className="flex items-center gap-3"><span className="text-2xl">🕹️</span> <span><b className="text-amber-400 uppercase tracking-wide">MOVE</b> with joystick</span></p>
-                            <p className="flex items-center gap-3"><span className="text-2xl">🪓</span> <span><b className="text-amber-400 uppercase tracking-wide">CHOMP</b> trees by bumping them</span></p>
-                            <p className="flex items-center gap-3"><span className="text-2xl">⚡</span> <span><b className="text-amber-400 uppercase tracking-wide">COMBO</b> logs for multipliers</span></p>
-                            <p className="flex items-center gap-3"><span className="text-2xl">🏗️</span> <span><b className="text-amber-400 uppercase tracking-wide">BUILD</b> dams to score big</span></p>
-                        </div>
-                    </div>
-                    <button 
-                        onClick={startGame}
-                        className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-black py-4 px-12 rounded-full text-2xl transition-all transform hover:scale-105 active:scale-95 shadow-2xl border-4 border-amber-300/20"
-                    >
-                        START CHOMPING
-                    </button>
-                </div>
-            )}
-            
-            {phase === 'GAMEOVER' && (
-                <div className="absolute inset-0 z-50 bg-red-950/90 flex flex-col items-center justify-center text-white p-6 animate-in fade-in duration-500 backdrop-blur-sm">
-                    <h1 className="text-7xl font-black mb-2 tracking-tighter text-white drop-shadow-xl">GAME OVER</h1>
-                    <div className="text-2xl font-bold mb-10 opacity-80 text-red-200">The dam remains unfinished...</div>
-                    
-                    <div className="bg-black/40 p-8 rounded-3xl border border-white/10 text-center mb-10 w-full max-w-md backdrop-blur-md shadow-2xl">
-                        <div className="text-amber-400 font-bold uppercase tracking-widest text-sm mb-2">Final Score</div>
-                        <div className="text-7xl font-black text-white mb-8 drop-shadow-lg tracking-tight">{(useGameStore.getState().score || 0).toLocaleString()}</div>
-                        
-                        <div className="grid grid-cols-2 gap-4 text-left">
-                            <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                                <div className="text-[10px] uppercase text-white/50 font-bold tracking-wider mb-1">Logs Collected</div>
-                                <div className="text-2xl font-bold">{(useGameStore.getState().totalLogsCollected || 0)}</div>
-                            </div>
-                            <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                                <div className="text-[10px] uppercase text-white/50 font-bold tracking-wider mb-1">Structures Built</div>
-                                <div className="text-2xl font-bold">{(useGameStore.getState().placedStructures?.length || 0)}</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <button 
-                        onClick={startGame}
-                        className="bg-white text-red-900 font-black py-4 px-12 rounded-full text-2xl hover:scale-105 transition-transform shadow-xl border-4 border-red-200"
-                    >
-                        TRY AGAIN
-                    </button>
-                </div>
-            )}
-            
+            {phase === 'START' && <StartScreen />}
+            {phase === 'GAMEOVER' && <GameOverScreen />}
+
             {phase === 'PLAYING' && (
                 <>
-                    {/* Wood Count & Health - Top Left */}
-                    <div className="absolute top-20 left-4 z-30 pointer-events-none flex flex-col gap-2">
-                        <div className="bg-black/60 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-xl min-w-[140px]">
-                            <div className="flex items-center gap-3 mb-2">
-                                <div className="bg-amber-900/50 p-1.5 rounded-lg border border-amber-700/50">
-                                    <span className="text-xl">🪵</span>
-                                </div>
-                                <div>
-                                    <div className="text-[9px] font-bold text-amber-400 uppercase tracking-wider">Wood</div>
-                                    <div className="text-2xl font-black text-white leading-none">{woodCount}</div>
-                                </div>
-                            </div>
-                            
-                            {activeTree && (
-                                <div className="mt-2 pt-2 border-t border-white/10">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <div className="text-[9px] uppercase font-bold text-white/70 tracking-wider">Tree Health</div>
-                                        <div className="text-[9px] font-mono text-white/50">{Math.ceil((activeTree.health / activeTree.maxHealth) * 100)}%</div>
-                                    </div>
-                                    <div className="w-full h-2 bg-black/50 rounded-full overflow-hidden border border-white/10">
-                                        <div 
-                                            className="h-full bg-gradient-to-r from-green-600 to-green-400 transition-all duration-75"
-                                            style={{ width: `${(activeTree.health / activeTree.maxHealth) * 100}%` }}
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                    
-                    <ComboUI />
-
+                    <Hud />
+                    <PowerupPills />
+                    <NotificationUI />
                     <Controls />
-                    
+                    <BuildMenuOverlay />
                     <GameMenuOverlay />
                 </>
             )}
@@ -420,11 +713,4 @@ export default function App() {
         </div>
     </ErrorBoundary>
   );
-}
-
-// Separate component to connect to store for menu visibility
-const GameMenuOverlay = () => {
-    const isBuildMenuOpen = useGameStore((state: any) => state.isBuildMenuOpen);
-    if (!isBuildMenuOpen) return null;
-    return <BuildMenu />;
 }
