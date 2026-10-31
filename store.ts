@@ -57,8 +57,8 @@ const MAX_DESTROY_SECONDS = 8;
 // and lands as a pick-up worth +1 wood - no score or combo, so throwing and picking the
 // log up again can't be farmed.
 export const THROW_COOLDOWN_MS = 600;
-const THROW_SPEED = 15;      // m/s forwards
-const THROW_LIFT = 4;        // m/s upwards - a flat arc: hits a wolf 2-8 m away, lands ~10 m out
+const THROW_SPEED = 38;      // m/s forwards
+const THROW_LIFT = 7;        // m/s upwards - lands ~30 m out on flat ground (gravity is 20 m/s²)
 const THROW_SPAWN_AHEAD = 1.2;
 const MOB_DEFEAT_POINTS = { wolf: 20, bear: 40 };
 

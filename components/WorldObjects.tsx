@@ -14,16 +14,20 @@ const PICKUP_RADIUS_SQ = 1.4 * 1.4;
 // Thrown logs: hit things while they're still flying fast
 const THROWN_FLIGHT_MS = 2500;      // Only the first moments of a throw can hit
 const THROWN_HIT_SPEED = 6;         // m/s - slower than this it's just rolling
-const THROWN_HIT_RADIUS_SQ = 1.3 * 1.3;
-const _hitSeg = new THREE.Vector3();
-// Squared distance from point (px,py,pz) to the segment a->b (the log's path this frame,
-// so a fast log can't skip past a target between two frames)
-const distSqToSegment = (px: number, py: number, pz: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
-    const dx = bx - ax, dy = by - ay, dz = bz - az;
-    const len = dx * dx + dy * dy + dz * dz;
-    const t = len > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / len)) : 0;
-    _hitSeg.set(ax + dx * t - px, ay + dy * t - py, az + dz * t - pz);
-    return _hitSeg.lengthSq();
+const THROWN_HIT_RADIUS = 1.2;      // m sideways from the target's centre
+const THROWN_HIT_BELOW = 1.2;       // m below the target's centre ...
+const THROWN_HIT_ABOVE = 2.0;       // ... to m above it (targets are treated as tall)
+// Does the log's path this frame (a -> b) pass through a target at p? Checked along the
+// whole segment, so a fast log can't skip past a target between two frames.
+export const thrownPathHits = (px: number, py: number, pz: number, ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+    const dx = bx - ax, dz = bz - az;
+    const len = dx * dx + dz * dz;
+    const t = len > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / len)) : 0;
+    const cx = ax + dx * t - px;
+    const cz = az + dz * t - pz;
+    if (cx * cx + cz * cz > THROWN_HIT_RADIUS * THROWN_HIT_RADIUS) return false;
+    const dy = ay + (by - ay) * t - py;
+    return dy > -THROWN_HIT_BELOW && dy < THROWN_HIT_ABOVE;
 };
 
 export const Boulder = React.memo(({ data }: { data: BoulderData }) => {
@@ -406,7 +410,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                     if (speed > THROWN_HIT_SPEED) {
                         for (const mob of liveObjects.mobs.values()) {
                             const mp = readBodyPosition(mob.object, helper.mobPos);
-                            if (distSqToSegment(mp.x, mp.y, mp.z, f.x, f.y, f.z, pos.x, pos.y, pos.z) < THROWN_HIT_RADIUS_SQ) {
+                            if (thrownPathHits(mp.x, mp.y, mp.z, f.x, f.y, f.z, pos.x, pos.y, pos.z)) {
                                 const h = Math.hypot(vx, vz) || 1;
                                 f.hit = true;
                                 mob.hit(vx / h, vz / h);

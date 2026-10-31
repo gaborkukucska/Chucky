@@ -13,6 +13,7 @@ About 50 earlier commits had left the game in a bad state: Chucky moved far too 
 **How a throw works.**
 - A throw costs 1 log, with a 0.6 s cooldown.
 - The log flies the way Chucky faces, spinning, with real physics, so it bounces off trees, rocks and structures.
+- After play-testing, throws were made much stronger: about 30 m on flat ground (it was about 10 m). The hit test now checks a tall zone around each animal along the log's path, so close and far throws both connect.
 
 **Hitting wolves and bears.** A log that hits a wolf or bear while it's still flying fast knocks the animal back and dazes it for a moment (it flashes red and stops attacking). A wolf runs off after 2 hits (+20 points) and a bear after 3 (+40).
 
