@@ -838,7 +838,7 @@ const ChuckySettings = () => {
             <Toggle
                 on={on}
                 label="🦫 Fact nuggets"
-                hint="Tips and beaver facts from Chucky as you play"
+                hint="Tips and fun facts from Chucky in solo games"
                 onChange={(value) => { facts.setEnabled(value); setOn(value); }}
             />
             <button
@@ -927,7 +927,10 @@ const GameMenu = () => {
                             </>
                         )}
                         <MenuButton onClick={() => setView('leaderboard')}>🏆 Leaderboard</MenuButton>
-                        <MenuButton onClick={() => { closeGameMenu(); facts.replayIntro(); }}>🦫 Chucky's tips</MenuButton>
+                        {!inJointGame && (
+                            // Chucky only talks in solo games
+                            <MenuButton onClick={() => { closeGameMenu(); facts.replayIntro(); }}>🦫 Chucky's tips</MenuButton>
+                        )}
                         <MenuButton onClick={() => setView('settings')}>⚙️ Settings</MenuButton>
                         {inJointGame
                             ? <MenuButton variant="danger" onClick={() => setView('confirmLeave')}>🚪 Leave game</MenuButton>
@@ -1034,14 +1037,14 @@ const StartScreen = () => {
 
     return (
         <div className="absolute inset-0 z-40 bg-black/80 flex flex-col items-center justify-center text-white p-4 backdrop-blur-sm overflow-y-auto">
-            <h1 className="text-5xl md:text-7xl font-black mb-3 tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-amber-400 to-amber-600 drop-shadow-lg text-center leading-none">
-                CHUCKY<br/>THE BEAVER
+            <h1 className="text-4xl min-[360px]:text-5xl md:text-7xl font-black mb-3 tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-amber-400 to-amber-600 drop-shadow-lg text-center leading-none">
+                CHUCKY<br/>THE WOODCHUCK
             </h1>
             <p className="italic text-sm md:text-base opacity-90 font-serif mb-4 text-gray-300 text-center">The river is flowing. The dam must be built.</p>
 
             <div className="flex items-center gap-3 bg-white/5 p-3 rounded-xl border border-white/10 text-xs shadow-xl max-w-sm w-full mb-5 text-gray-300">
                 <span className="text-4xl leading-none" aria-hidden="true">🦫</span>
-                <p>Hi, I'm Chucky! Start a game and I'll show you the ropes - and bust a few myths about beavers along the way.</p>
+                <p>Hi, I'm Chucky! Start a game and I'll show you the ropes - and let you in on a little secret about woodchucks.</p>
             </div>
 
             <div className="w-full max-w-xs space-y-2">

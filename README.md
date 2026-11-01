@@ -1,6 +1,6 @@
-# Woodchuck Dam Builder 3000 🦫
+# Chucky the Woodchuck 🦫
 
-Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you play as Chucky, an industrious **beaver** who chomps trees, hauls logs and builds the ultimate dam across the river. (Yes, the title is a joke: woodchucks don't actually chuck wood. Chucky will tell you all about it.)
+Welcome to **Chucky the Woodchuck**, a 3D game where you play as Chucky, an industrious **beaver** who chomps trees, hauls logs and builds the ultimate dam across the river. (Yes, the title is a joke: woodchucks don't actually chuck wood. Chucky will tell you all about it.)
 
 ## 🌟 Features
 
@@ -18,7 +18,7 @@ Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you
     - 🌟 **Golden Teeth** (30 s): trees drop twice the logs.
 - **River piranha**: one lurks in the river and bites when you swim near it. Two log hits chase it off for 50 points and a magic item, and another turns up a few minutes later.
 - **Swimming and diving**: Swim across the river and dive for logs and fruit that have sunk. Keep an eye on the breath bar.
-- **Chucky's fact nuggets**: Chucky explains the game in a speech bubble when you start, then shares beaver facts and myth-busters as you play. The text is in `public/chucky-facts.json`, which you can edit.
+- **Chucky's fact nuggets**: in solo games, Chucky explains the game in a speech bubble when you start, then shares beaver facts and myth-busters as you play. He stays quiet in joint games. The text is in `public/chucky-facts.json`, which you can edit.
 - **Throwing logs**: On land, tap the throw button for a short toss or hold it for a longer, higher throw; release to throw the way Chucky faces. Thrown logs spin randomly. A dotted line shows the flight path while you aim, and every throw flies a little off the aim. A wolf runs off after 2 hits and a bear after 3. A thrown log can be picked up again, but only gives the wood back.
 - **Day and night**: The sun and moon move across the sky. At night wolves and bears come out.
 - **Four camera views**:
@@ -114,7 +114,7 @@ If you run the server directly on your phone with Termux:
 
 ## 🎮 How to Play
 
-When you start your first game, Chucky explains the basics in a speech bubble (Next ▶ / Skip, or Enter / Esc). After that, he pops up now and then with a beaver fact. In a solo game the game pauses while he talks. You can replay the tips from ☰ → 🦫 Chucky's tips, and switch the facts off in ⚙️ Settings.
+When you start your first game, Chucky explains the basics in a speech bubble (Next ▶ / Skip, or Enter / Esc). After that, he pops up now and then with a beaver fact, and the game pauses while he talks. Chucky only talks in solo games: in joint games he stays quiet, so nobody gets interrupted (if your first game is a joint game, the tips wait for your first solo game). You can replay the tips from ☰ → 🦫 Chucky's tips in a solo game, and switch the facts off in ⚙️ Settings.
 
 1. **Chomp trees**: walk up against a tree trunk and Chucky chomps it automatically. The bar at the top shows the tree's health. Felled trees drop logs and sometimes an apple or a berry.
 2. **Collect logs**: walk over logs to pick them up. Picking logs up quickly builds your combo.
@@ -225,7 +225,7 @@ All sound is synthesized in `services/audio.ts` and mixed on three channels: **m
 
 ### Editing Chucky's facts
 
-Open `public/chucky-facts.json`, change or add entries, and reload the game; there's no need to rebuild. Each entry has a unique `id` and a `text`. Entries in `intro` play one after another at the start of your first game. Entries in `facts` show up one at a time, at most one every 40 seconds, each once per device. A fact's `when` is what the player must have reached first, for example `{ "trees": 3 }` or `{ "swim": 1, "logs": 10 }`. Facts without `when` come up every few minutes. Mistakes such as a missing id or an unknown `when` key are skipped, with a message in the browser console. The `_readme` at the top of the file explains every key.
+Open `public/chucky-facts.json`, change or add entries, and reload the game; there's no need to rebuild. Each entry has a unique `id` and a `text`. Entries in `intro` play one after another at the start of your first solo game. Entries in `facts` show up one at a time (in solo games only), at most one every 40 seconds, each once per device. A fact's `when` is what the player must have reached first, for example `{ "trees": 3 }` or `{ "swim": 1, "logs": 10 }`. Facts without `when` come up every few minutes. Mistakes such as a missing id or an unknown `when` key are skipped, with a message in the browser console. The `_readme` at the top of the file explains every key.
 
 ### Joint games architecture
 

@@ -1,10 +1,18 @@
 # Changelog
 
-All notable changes to Woodchuck Dam Builder 3000 (*Chucky*). Newest first.
+All notable changes to Chucky the Woodchuck. Newest first.
 
-## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–13)
+## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–14)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 14: Chucky only talks in solo games; "Chucky the Woodchuck" everywhere
+
+**Solo games only.** Chucky's tips and fact nuggets never show in a joint game, or while one is connecting or has lost its connection. There are no automatic bubbles, the store refuses to open one, and the menu hides 🦫 Chucky's tips. If your very first game is a joint game, the tips wait for your first solo game.
+
+**One title.** The game is called **Chucky the Woodchuck** everywhere: the start screen (it said "Chucky the Beaver"), the browser tab, `package.json` (`chucky-the-woodchuck`), the README and this changelog. That way the first fact, "By the way, I'm a beaver!", is a surprise. The start-screen greeting and the Settings hint no longer give the secret away, and the title is a size smaller on phones narrower than 360 px so the longer word fits.
+
+Files: `services/facts.ts`, `store.ts`, `App.tsx`, `index.html`, `package.json`, `README.md`, `CHANGELOG.md`.
 
 ### Round 13: Magic drops, Log Shield and the river piranha
 

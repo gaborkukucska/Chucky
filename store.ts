@@ -976,7 +976,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   })),
 
   // Chucky's speech bubble (services/facts.ts decides what and when). Pauses a solo game.
-  showChucky: (items, kind) => set((state) => (items.length
+  showChucky: (items, kind) => set((state) => (items.length && state.mp.status === 'off' // Solo games only
       ? { chucky: { items, index: 0, kind }, ...pauseFields(state) }
       : state)),
 

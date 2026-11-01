@@ -1,5 +1,5 @@
-// Chucky's fact nuggets: tips and beaver facts in a speech bubble (a solo game pauses
-// while it's shown). The text lives in public/chucky-facts.json - edit it and reload the
+// Chucky's fact nuggets: tips and beaver facts in a speech bubble. Solo games only: Chucky
+// stays quiet in joint games. The game pauses while a bubble is shown. The text lives in public/chucky-facts.json - edit it and reload the
 // game, no rebuild needed. See the "_readme" in that file for the format.
 
 import { useGameStore, isNightTime } from '../store';
@@ -143,6 +143,7 @@ class FactsService {
 
     /** Menu: "Chucky's tips" */
     replayIntro() {
+        if (useGameStore.getState().mp.status !== 'off') return; // Solo games only
         useGameStore.getState().showChucky(this.intro, 'intro');
     }
 
@@ -150,6 +151,9 @@ class FactsService {
     tick(now: number) {
         const s = useGameStore.getState();
         if (s.phase !== 'PLAYING') return;
+        // Tips and facts are for solo games only: never in a joint game (or while one is
+        // connecting or has lost its connection). The intro waits for the first solo game.
+        if (s.mp.status !== 'off') return;
 
         if (s.runId !== this.runId) {
             // New game (or a joined joint game)
