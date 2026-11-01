@@ -272,6 +272,7 @@ class MultiplayerClient {
                         timeOfDay: Number(msg.clock?.tod ?? state.timeOfDay),
                         day: Number(msg.clock?.day ?? state.day),
                         mp: { ...state.mp, status: 'playing', code: String(msg.code), myId: this.myId, team: this.team, isHost: !!msg.host, players, error: null },
+                        runId: state.runId + 1, // Spawn again now the team is known: at its corner of the map
                     };
                 });
                 try { window.localStorage.setItem('chucky.lastCode', String(msg.code)); } catch { /* ignore */ }

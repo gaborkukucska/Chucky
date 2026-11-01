@@ -1137,20 +1137,18 @@ export default function App() {
      facts.load();
   }, []);
 
+  // Sound: browsers only let audio start from a tap, click or key press. On a phone the very
+  // first touch (touchstart) doesn't count - the tap counts when the finger lifts - and iOS
+  // can pause the audio as 'interrupted'. So every gesture asks the audio to resume (cheap
+  // once it runs), instead of only the first touch.
   useEffect(() => {
      const unlock = () => {
          audioService.resume();
          audioService.startMusic();
-         window.removeEventListener('click', unlock);
-         window.removeEventListener('touchstart', unlock);
      };
-     window.addEventListener('click', unlock);
-     window.addEventListener('touchstart', unlock);
-
-     return () => {
-         window.removeEventListener('click', unlock);
-         window.removeEventListener('touchstart', unlock);
-     };
+     const events = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'] as const;
+     events.forEach(e => window.addEventListener(e, unlock, { capture: true, passive: true }));
+     return () => events.forEach(e => window.removeEventListener(e, unlock, { capture: true }));
   }, []);
 
   return (

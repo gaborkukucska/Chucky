@@ -4,7 +4,7 @@ Welcome to **Chucky the Woodchuck**, a 3D game where you play as Chucky, an indu
 
 ## 🌟 Features
 
-- **A new world every run**: Each game makes its own seeded world with a river, hills, 250 trees and boulders.
+- **A new world every run**: every game makes its own map from a random seed: the river's path and width, the hills and ponds, 250 trees and boulders. A saved game keeps the map it was made on.
 - **Chomp, collect, build**: Chomp trees into logs, pick them up and build 10 beaver structures, from a *Food Cache* (7 logs) to the *Beaver Kingdom* (3,840 logs): dams that curve upstream, and lodges with an air vent and underwater entrance tunnels. A structure built in the river scores more than one on land.
 - **Combos and power-ups**:
   - **Combo**: collect logs quickly to raise a multiplier up to 4x.
@@ -91,7 +91,8 @@ If you host only the built `dist/` folder somewhere else, the API isn't there. T
 - **Racing for resources:** the first player to reach a log or a piece of fruit gets it.
 - **Teams:** pick Red, Blue, Green or Yellow; the same colour means team mates. **Solo** means everyone is your rival. Each Chucky wears a scarf in their team colour, with a name tag over their head.
 - **Throwing:** a thrown log 🪵 hurts other players (20 damage and a knock-back). A team mate catches it instead and gets the wood.
-- **Knock-outs:** at zero health you're knocked out. You drop half your logs for others to grab, and you're back at the river bank 5 seconds later with your score kept.
+- **Spawn points:** each team starts in its own corner of the map: Red north-west, Blue south-east, Green north-east, Yellow south-west. Team mates spread along the edges from there. **Solo** players start in the middle.
+- **Knock-outs:** at zero health you're knocked out. You drop half your logs for others to grab, and 5 seconds later you're back at your team's corner (Solo: the middle) with your score kept.
 - **Structures:** you can demolish your own and your team's, but not a rival's. Demolishing a team mate's structure doesn't cost you points.
 - **No pausing or saving:** the game never pauses, because the world goes on for everyone, and joint games can't be saved.
 - **Wolves and bears:** each player has their own.
@@ -111,6 +112,8 @@ If you run the server directly on your phone with Termux:
    ```bash
    CHOKIDAR_USEPOLLING=true npm start
    ```
+
+**No sound on a phone?** The sound starts with your first tap in the game. On an iPhone, the ring/silent switch also mutes web games: switch it to ring.
 
 ## 🎮 How to Play
 

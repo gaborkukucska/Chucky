@@ -27,6 +27,7 @@ export interface SaveData {
     version: number;
     savedAt: number;
     worldSeed: number;
+    terrainVersion?: number;            // 2 = map from the seed; missing = the original map
     day: number;
     timeOfDay: number;
     woodCount: number;

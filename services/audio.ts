@@ -35,6 +35,7 @@ class AudioService {
     private buses: Partial<Record<AudioChannel, GainNode>> = {};
     private settings: AudioSettings = { music: true, environment: true, sfx: true };
     private unlocked = false;
+    private kicked = false;        // Played the silent unlock sound (older iPhones)
 
     // Music
     private musicWanted = false;   // startMusic() was called (after the first tap)
@@ -65,6 +66,10 @@ class AudioService {
                 bus.connect(this.master!);
                 this.buses[ch] = bus;
             });
+            // Start the music and ambience the moment the audio is allowed to run
+            this.ctx.onstatechange = () => {
+                if (this.running) this.restartSchedulers();
+            };
         } catch (e) {
             console.error('Web Audio API not supported');
             this.ctx = null;
@@ -87,14 +92,34 @@ class AudioService {
     // Lifecycle
     // ------------------------------------------------------------------
 
-    /** Call from a user gesture (tap / click / key). Safe to call repeatedly. */
+    /** Call from a user gesture (tap / click / key). Safe to call repeatedly: App.tsx calls it
+     *  on every tap until the audio runs. */
     public async resume() {
         if (!this.ctx) return;
         this.unlocked = true;
-        if (this.ctx.state === 'suspended' && !document.hidden) {
+        // Not just 'suspended' (before the first tap): iOS Safari can also report
+        // 'interrupted' (e.g. another app had the audio) - that needs a resume too
+        if (this.ctx.state !== 'running' && !document.hidden) {
+            this.kickSilentSound();
             try { await this.ctx.resume(); } catch { /* ignore */ }
         }
         this.restartSchedulers();
+    }
+
+    public get isRunning() {
+        return this.running;
+    }
+
+    /** Older iOS Safari only unlocks Web Audio once something has played inside a tap */
+    private kickSilentSound() {
+        if (!this.ctx || this.kicked) return;
+        this.kicked = true;
+        try {
+            const source = this.ctx.createBufferSource();
+            source.buffer = this.ctx.createBuffer(1, 1, 22050);
+            source.connect(this.ctx.destination);
+            source.start(0);
+        } catch { /* ignore */ }
     }
 
     private get running() {

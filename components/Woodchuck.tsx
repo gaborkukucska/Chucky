@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useSphere } from '@react-three/cannon';
 import { Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
-import { useGameStore, getRiverX, getRiverWidth, calculateTerrainHeight, isNightTime } from '../store';
+import { useGameStore, getRiverX, getRiverWidth, calculateTerrainHeight, isNightTime, findDryLand, jointSpawnPoint } from '../store';
 import { currentWoodchuckPos, playerState } from '../globals';
 import { audioService } from '../services/audio';
 import { PreviewStructureOverlay } from './WorldObjects';
@@ -71,13 +71,21 @@ const moveTowards = (current: number, target: number, maxStep: number) =>
 const treeScale = (t: TreeData) => (t.size === 'small' ? 0.8 : t.size === 'large' ? 1.5 : 1.1);
 const trunkBaseRadius = (t: TreeData) => 0.5 * treeScale(t) * 1.5;
 
-// Spawn on the west bank, a little way back from the water, facing the river
-const getSpawnPoint = (): [number, number, number] => {
-    const z = 20;
-    const x = getRiverX(z) - getRiverWidth(z) - 12;
-    return [x, calculateTerrainHeight(x, z) + PLAYER_RADIUS, z];
-};
 const SPAWN_FACING = Math.PI / 2; // +X, towards the river
+
+// Where Chucky (re)spawns. Joint games: his team's corner of the map (Solo: the middle).
+// Otherwise: the west bank, a little way back from the water, facing the river.
+// Never in the river or a pond (every map is different now).
+const getSpawn = (): { position: [number, number, number]; facing: number } => {
+    const mp = useGameStore.getState().mp;
+    if (mp.status !== 'off' && mp.myId) {
+        const j = jointSpawnPoint(mp);
+        return { position: [j.x, calculateTerrainHeight(j.x, j.z) + PLAYER_RADIUS, j.z], facing: j.facing };
+    }
+    const [x, z] = findDryLand(getRiverX(20) - getRiverWidth(20) - 12, 20);
+    return { position: [x, calculateTerrainHeight(x, z) + PLAYER_RADIUS, z], facing: SPAWN_FACING };
+};
+const getSpawnPoint = () => getSpawn().position;
 
 // Each placed structure is turned into XZ line segments (one per log) for the
 // kinematic collision + destroy proximity. Built once per structure and cached.
@@ -213,11 +221,13 @@ export const Woodchuck = () => {
     const underwaterRef = useRef(false);
 
     // Respawn on mount and on every new/loaded run (startGame / loadGame bump runId).
-    // A loaded save provides spawnPoint + spawnFacing; otherwise the default river-bank spawn.
+    // A loaded save provides spawnPoint + spawnFacing; otherwise getSpawn() (river bank, or the
+    // team's corner in a joint game).
     useEffect(() => {
         const st = useGameStore.getState();
-        const spawn: [number, number, number] = st.spawnPoint ? [...st.spawnPoint] as [number, number, number] : getSpawnPoint();
-        const facing = st.spawnPoint ? st.spawnFacing : SPAWN_FACING;
+        const fresh = st.spawnPoint ? null : getSpawn();
+        const spawn: [number, number, number] = st.spawnPoint ? [...st.spawnPoint] as [number, number, number] : fresh!.position;
+        const facing = st.spawnPoint ? st.spawnFacing : fresh!.facing;
         internalPos.current = spawn;
         velocity.current = { x: 0, z: 0 };
         currentRotationY.current = facing;
@@ -267,7 +277,7 @@ export const Woodchuck = () => {
             return;
         }
 
-        // Joint games: knocked out - lie still, then get up at the river bank
+        // Joint games: knocked out - lie still, then get up at the team's corner
         const knockedOut = s.koUntil > 0;
         if (knockedOut && Date.now() >= s.koUntil) {
             s.mpRespawn();

@@ -826,6 +826,8 @@ const GameScene = () => {
     const mobs = useGameStore(state => state.mobs);
     const quality = useGameStore(state => state.quality);
     const qualitySettings = QUALITY_SETTINGS[quality];
+    // Each world has its own land: the terrain (mesh + physics) and grass are rebuilt for it
+    const worldKey = useGameStore(state => `${state.worldSeed}-${state.terrainVersion}`);
 
     // Audio Init
     useEffect(() => {
@@ -865,7 +867,7 @@ const GameScene = () => {
                 )}
 
                 <Physics gravity={[0, -20, 0]}>
-                    <Terrain />
+                    <Terrain key={worldKey} />
                     <Water />
 
                     {/* World Objects */}
@@ -882,7 +884,7 @@ const GameScene = () => {
                     <Woodchuck />
                 </Physics>
 
-                <Grass key={quality} quality={quality} />
+                <Grass key={`${quality}-${worldKey}`} quality={quality} />
                 <RemotePlayers />
                 <ThrowAimGuide />
                 <Piranhas />

@@ -2,9 +2,30 @@
 
 All notable changes to Chucky the Woodchuck. Newest first.
 
-## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–16)
+## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–17)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 17: Sound on phones, a new map every game, team corners
+
+**No sound on phones until you switched tabs.**
+- **Cause:** the sound was unlocked only from the very first touch (`touchstart`), and then the listener removed itself. Phone browsers don't count `touchstart` as a tap that may start audio; the tap counts when the finger lifts. iOS Safari can also report the audio as `interrupted`, which the old code never tried to resume.
+- **Why switching tabs fixed it:** coming back to the tab resumed the audio from any state.
+- **Fix:** every tap, click or key press now asks the audio to resume until it runs, from `suspended` or `interrupted`. A silent sound unlocks older iPhones, and the music and ambience start as soon as the audio is running.
+
+**A new map every game.** The README promised a new world every run, but only the trees changed: the land was always the same. Now:
+- the river's path and width, the hills and the ponds also come from the world seed;
+- joint games share the room's seed, so everyone gets the same map;
+- the terrain mesh, its physics and the grass are rebuilt for each world;
+- saves record which map they were made on, and older saves keep the original map.
+
+**Joint-game spawn points.**
+- Each team starts, and gets up after a knock-out, in its own corner of the map: Red north-west, Blue south-east, Green north-east, Yellow south-west.
+- Team mates spread along the two edges that meet at their corner, facing the middle.
+- Solo players start in the middle of the map.
+- Spawns never land in the river or a pond. Single-player games still start on the river bank, also never in the water.
+
+Files: `services/audio.ts`, `App.tsx`, `store.ts`, `services/persistence.ts`, `services/multiplayer.ts`, `components/Woodchuck.tsx`, `components/Game3D.tsx`, `README.md`, `CHANGELOG.md`.
 
 ### Round 16: Beaver dams and lodges
 

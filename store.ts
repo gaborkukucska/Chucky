@@ -127,7 +127,7 @@ const PIRANHA_RESPAWN_MIN_MS = 180000;     // A new one turns up 3-5 minutes aft
 const PIRANHA_RESPAWN_MAX_MS = 300000;
 
 // Joint games
-const KO_DURATION_MS = 5000;        // Knocked out this long, then back at the river bank
+const KO_DURATION_MS = 5000;        // Knocked out this long, then back at your team's corner
 const KO_DROP_PIECES = 4;           // Half your logs drop as up to this many bundles
 const THROW_PLAYER_DAMAGE = 20;
 const THROW_PLAYER_KNOCKBACK = 9;   // m/s added to the victim's speed
@@ -196,6 +196,7 @@ interface GameState {
 
   // World (deterministic from the seed: trees, boulders, blueprint shapes)
   worldSeed: number;
+  terrainVersion: number;        // 2 = map from the seed; 1 = the original map (older saves)
   runId: number;                 // Incremented on every new/loaded game so the player respawns
   spawnPoint: Vec3 | null;       // Set when loading a save; null = default river-bank spawn
   spawnFacing: number;
@@ -327,14 +328,67 @@ interface GameState {
 }
 
 // =====================================================================
-// Terrain Helpers (unchanged)
+// Terrain: the river's path and width and the hills come from the world seed, so every
+// new game has its own map (TERRAIN_VERSION 2). Saves from before that keep the original
+// map (version 1 = LEGACY_TERRAIN). setTerrain() must run before anything reads the
+// terrain - generateWorld() does that first.
 // =====================================================================
+interface TerrainShape {
+    rx: number;                                         // River: shift of the whole river along X
+    r1A: number; r1F: number; r1P: number;              //   big bends
+    r2A: number; r2F: number; r2P: number;              //   small bends
+    w0: number; wA: number; wF: number; wP: number;     // River width: base + slow change
+    wB: number; wG: number; wQ: number;                 //   + quicker change
+    h1A: number; h1F: number; h1G: number; h1P: number; h1Q: number; // Hills
+    h2A: number; h2F: number; h2G: number; h2P: number;              // Ridges
+    h3A: number; h3F: number; h3G: number; h3P: number; h3Q: number; // Broad rises and hollows
+}
+
+// The original map (exactly the old fixed formulas)
+const LEGACY_TERRAIN: TerrainShape = {
+    rx: 0, r1A: 20, r1F: 0.02, r1P: 0, r2A: 10, r2F: 0.05, r2P: 2,
+    w0: 8, wA: 3, wF: 0.03, wP: 0, wB: 2, wG: 0.1, wQ: 0,
+    h1A: 4, h1F: 0.08, h1G: 0.08, h1P: 0, h1Q: 0,
+    h2A: 2, h2F: 0.04, h2G: 0.08, h2P: 0,
+    h3A: 0, h3F: 0, h3G: 0, h3P: 0, h3Q: 0,
+};
+export const TERRAIN_VERSION = 2;
+let T: TerrainShape = LEGACY_TERRAIN;
+
+/** A map from a seed: same kind of land as the original, different river and hills */
+const seededTerrain = (seed: number): TerrainShape => {
+    let s = (seed ^ 0x5bd1e995) | 0; // Its own random stream (mulberry32)
+    const rand = () => {
+        s = (s + 0x6D2B79F5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const range = (a: number, b: number) => a + (b - a) * rand();
+    const phase = () => rand() * Math.PI * 2;
+    return {
+        rx: range(-15, 15),
+        r1A: range(12, 24), r1F: range(0.012, 0.028), r1P: phase(),
+        r2A: range(4, 11), r2F: range(0.035, 0.065), r2P: phase(),
+        w0: range(7.5, 10), wA: range(1.5, 3.5), wF: range(0.02, 0.04), wP: phase(),
+        wB: range(1, 2.5), wG: range(0.07, 0.12), wQ: phase(),
+        h1A: range(3, 5.5), h1F: range(0.05, 0.1), h1G: range(0.05, 0.1), h1P: phase(), h1Q: phase(),
+        h2A: range(1.5, 3), h2F: range(0.03, 0.06), h2G: range(0.05, 0.1), h2P: phase(),
+        h3A: range(0, 2.5), h3F: range(0.012, 0.025), h3G: range(0.012, 0.025), h3P: phase(), h3Q: phase(),
+    };
+};
+
+/** Shape the land for a world: version 2 = from the seed, 1 = the original map */
+export const setTerrain = (seed: number, version: number) => {
+    T = version >= 2 ? seededTerrain(seed) : LEGACY_TERRAIN;
+};
+
 export const getRiverX = (z: number) => {
-    return 20 * Math.sin(z * 0.02) + 10 * Math.sin(z * 0.05 + 2);
+    return T.rx + T.r1A * Math.sin(z * T.r1F + T.r1P) + T.r2A * Math.sin(z * T.r2F + T.r2P);
 };
 
 export const getRiverWidth = (z: number) => {
-    return 8 + 3 * Math.cos(z * 0.03) + 2 * Math.sin(z * 0.1);
+    return T.w0 + T.wA * Math.cos(z * T.wF + T.wP) + T.wB * Math.sin(z * T.wG + T.wQ);
 };
 
 export const calculateTerrainHeight = (x: number, z: number) => {
@@ -345,8 +399,9 @@ export const calculateTerrainHeight = (x: number, z: number) => {
     let height = 0;
 
     // Rolling hills base
-    height += 4 * Math.sin(x * 0.08) * Math.cos(z * 0.08);
-    height += 2 * Math.sin(x * 0.04 + z * 0.08);
+    height += T.h1A * Math.sin(x * T.h1F + T.h1P) * Math.cos(z * T.h1G + T.h1Q);
+    height += T.h2A * Math.sin(x * T.h2F + z * T.h2G + T.h2P);
+    height += T.h3A * Math.sin(x * T.h3F + T.h3P) * Math.sin(z * T.h3G + T.h3Q);
 
     // Mountains at edges
     const distFromCenter = Math.sqrt(x*x + z*z);
@@ -373,6 +428,67 @@ export const calculateTerrainHeight = (x: number, z: number) => {
 
 export const isLand = (x: number, z: number) => {
     return calculateTerrainHeight(x, z) > 0.5;
+};
+
+// =====================================================================
+// Spawn points
+// =====================================================================
+/** The nearest dry spot to (x, z) - not in the river or a pond, not at the map's edge */
+export const findDryLand = (x: number, z: number): [number, number] => {
+    const limit = MAP_SIZE / 2 - 15;
+    const ok = (px: number, pz: number) =>
+        Math.abs(px) < limit && Math.abs(pz) < limit && calculateTerrainHeight(px, pz) > WATER_LEVEL + 0.8;
+    if (ok(x, z)) return [x, z];
+    for (let r = 2; r <= 80; r += 2) {
+        const steps = Math.max(8, Math.round(r * 1.5));
+        for (let i = 0; i < steps; i++) {
+            const a = (i / steps) * Math.PI * 2;
+            const px = x + Math.cos(a) * r;
+            const pz = z + Math.sin(a) * r;
+            if (ok(px, pz)) return [px, pz];
+        }
+    }
+    return [x, z];
+};
+
+// Joint games: each team has a corner (the mountains start ~110 m from the middle)
+const TEAM_CORNERS: Record<string, [number, number]> = {
+    red: [-1, -1],    // North-west
+    blue: [1, 1],     // South-east
+    green: [1, -1],   // North-east
+    yellow: [-1, 1],  // South-west
+};
+const SPAWN_CORNER = 72;    // m from the middle along X and Z
+const SPAWN_SPACING = 9;    // m between team mates along the edges
+
+/** Where this player (re)spawns in a joint game: the team's corner - team mates spread along
+ *  the two edges that meet there - or the middle of the map for Solo players. Faces the middle. */
+export const jointSpawnPoint = (mp: MpState): { x: number; z: number; facing: number } => {
+    // Join order: player ids are p1, p2, ... p10 (compare the numbers, not the text)
+    const order = (id: string) => parseInt(id.replace(/\D/g, ''), 10) || 0;
+    const mates = [{ id: mp.myId, team: mp.team }, ...Object.values(mp.players)]
+        .filter(p => p.team === mp.team)
+        .map(p => p.id)
+        .filter((id, i, all) => all.indexOf(id) === i)
+        .sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+    const k = Math.max(0, mates.indexOf(mp.myId)); // 0 = first of the team
+    const corner = TEAM_CORNERS[mp.team];
+    let x: number;
+    let z: number;
+    if (corner) {
+        // 0: the corner; then 1, 3, 5... along the north/south edge and 2, 4, 6... along the east/west edge
+        const along = Math.ceil(k / 2) * SPAWN_SPACING;
+        x = corner[0] * (SPAWN_CORNER - (k % 2 === 1 ? along : 0));
+        z = corner[1] * (SPAWN_CORNER - (k > 0 && k % 2 === 0 ? along : 0));
+    } else {
+        // Solo: around the middle, a few metres apart
+        const a = k * 2.39996;
+        const r = k === 0 ? 0 : 5 + 3 * Math.sqrt(k);
+        x = Math.cos(a) * r;
+        z = Math.sin(a) * r;
+    }
+    [x, z] = findDryLand(x, z);
+    return { x, z, facing: Math.atan2(-x, -z) };
 };
 
 // --- Day / Night ---
@@ -445,12 +561,13 @@ const generateBoulders = (seed: number, rand: () => number): BoulderData[] =>
         };
     });
 
-const generateWorld = (seed: number) => {
+const generateWorld = (seed: number, terrainVersion = TERRAIN_VERSION) => {
+    setTerrain(seed, terrainVersion); // First: trees, boulders and the rest follow the land
     const rand = mulberry32(seed);
     const trees = generateTrees(seed, rand);
     const boulders = generateBoulders(seed, rand);
     const blueprints = generateBlueprints(rand);
-    return { worldSeed: seed, trees, boulders, blueprints };
+    return { worldSeed: seed, terrainVersion, trees, boulders, blueprints };
 };
 
 // =====================================================================
@@ -679,6 +796,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   notification: null,
   damIntegrity: 0,
   worldSeed: initialWorld.worldSeed,
+  terrainVersion: initialWorld.terrainVersion,
   trees: initialWorld.trees,
   logs: [],
   looseLogs: [],
@@ -784,6 +902,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           spawnPoint: null,
           spawnFacing: Math.PI / 2,
           worldSeed: world.worldSeed,
+          terrainVersion: world.terrainVersion,
           trees: world.trees,
           boulders: world.boulders,
           blueprints: world.blueprints,
@@ -910,7 +1029,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       get().takeDamage(damage);
   },
 
-  // Joint games: back on your feet at the river bank after a knock-out (score and the
+  // Joint games: back on your feet at your team's corner after a knock-out (score and the
   // logs you kept stay)
   mpRespawn: () => set((state) => ({
       koUntil: 0,
@@ -1543,6 +1662,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           version: SAVE_VERSION,
           savedAt: Date.now(),
           worldSeed: s.worldSeed,
+          terrainVersion: s.terrainVersion,
           day: s.day,
           timeOfDay: s.timeOfDay,
           woodCount: s.woodCount,
@@ -1602,7 +1722,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       try {
           const now = Date.now();
-          const world = generateWorld(data.worldSeed);
+          const world = generateWorld(data.worldSeed, data.terrainVersion ?? 1); // Older saves: the original map
           const tag = `L${now}`; // Fresh ids so React/physics create new bodies
 
           set((state) => ({
@@ -1611,6 +1731,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               spawnPoint: data.player.position,
               spawnFacing: data.player.facing,
               worldSeed: world.worldSeed,
+              terrainVersion: world.terrainVersion,
               boulders: world.boulders,
               trees: world.trees.map((t, i) => {
                   const saved = data.trees[i];
@@ -1683,6 +1804,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           return { ok: true, message: `Loaded slot ${slot}.` };
       } catch (e) {
           console.error('[Chucky] Load failed:', e);
+          setTerrain(get().worldSeed, get().terrainVersion); // Keep the current game's land
           return { ok: false, message: 'That save could not be loaded.' };
       }
   },
