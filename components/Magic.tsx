@@ -298,7 +298,8 @@ const ShieldLogs = ({ groupRef }: { groupRef: React.RefObject<THREE.Group | null
         {Array.from({ length: SHIELD_LOGS }).map((_, i) => {
             const a = (i / SHIELD_LOGS) * Math.PI * 2;
             return (
-                <mesh key={i} position={[Math.sin(a) * SHIELD_RADIUS, 0, Math.cos(a) * SHIELD_RADIUS]} rotation={[Math.PI / 2, a, 0]} castShadow>
+                // 'YXZ': tip the log flat along +Z, then turn it to angle a, so one end points at Chucky
+                <mesh key={i} position={[Math.sin(a) * SHIELD_RADIUS, 0, Math.cos(a) * SHIELD_RADIUS]} rotation={[Math.PI / 2, a, 0, 'YXZ']} castShadow>
                     <cylinderGeometry args={[0.15, 0.15, 1.1, 8]} />
                     <meshStandardMaterial color="#8D6E63" emissive="#F59E0B" emissiveIntensity={0.35} />
                 </mesh>

@@ -2,9 +2,22 @@
 
 All notable changes to Chucky the Woodchuck. Newest first.
 
-## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–14)
+## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–15)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 15: Log Shield logs point at Chucky; dev power-up menu
+
+**Log Shield.** Each orbiting log now points one end at Chucky, like the spokes of a wheel, instead of all six lying the same way. This applies to rivals' shields too.
+
+**Dev menu.** `npm run dev` now starts Vite in mode `devtools`, which shows a dashed 🛠️ button on the left. Its panel can:
+- switch any power-up or magic on or off, with countdowns;
+- drop a magic item, call the piranha to Chucky, or spawn a wolf or bear;
+- add 50 logs, heal, or jump to night or day (solo only).
+
+`npm start` and production builds don't include it. `tsconfig.json` now includes the `vite/client` types for `import.meta.env`.
+
+Files: `components/DevPanel.tsx` (new), plus `components/Magic.tsx`, `store.ts`, `App.tsx`, `tsconfig.json`, `package.json`, `README.md`, `CHANGELOG.md`.
 
 ### Round 14: Chucky only talks in solo games; "Chucky the Woodchuck" everywhere
 

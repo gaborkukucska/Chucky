@@ -1,6 +1,7 @@
 import React, { Component, useEffect, useState, ReactNode } from 'react';
 import { Game3D } from './components/Game3D';
 import { Controls } from './components/Controls';
+import { DevPanel } from './components/DevPanel';
 import type { MagicType } from './types';
 import { MAGIC_INFO } from './store';
 import { useGameStore, isNightTime, BERRIES_FOR_ZOOMIES, getComboDeadline, getComboWindow, COMBO_LOGS_PER_LEVEL, COMBO_MAX_MULTIPLIER } from './store';
@@ -1168,6 +1169,8 @@ export default function App() {
                     <ChuckyBubble />
                     <KnockoutOverlay />
                     <ConnectionLostOverlay />
+                    {/* Dev menu: `npm run dev` only (Vite mode "devtools"); compiled out of other builds */}
+                    {import.meta.env.DEV && import.meta.env.MODE === 'devtools' && <DevPanel />}
                 </>
             )}
 

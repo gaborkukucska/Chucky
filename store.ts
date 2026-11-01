@@ -111,6 +111,9 @@ export const MAGIC_INFO: Record<MagicType, { icon: string; label: string; durati
     bubble: { icon: '🫧', label: 'Bubble Breath', duration: 30000, color: '#38BDF8', message: 'Endless air underwater for 30 seconds - dive as long as you like!' },
     double: { icon: '🌟', label: 'Golden Teeth', duration: 30000, color: '#FACC15', message: 'Trees you fell drop twice the logs for 30 seconds!' },
 };
+// Dev menu (npm run dev only, components/DevPanel.tsx)
+export type DevPowerup = 'tree' | 'log' | 'speed' | MagicType;
+export type DevAction = 'magic' | 'wood' | 'heal' | 'wolf' | 'bear' | 'piranha' | 'night' | 'day';
 const MAGIC_WEIGHTS: [MagicType, number][] = [['shield', 35], ['triple', 25], ['bubble', 20], ['double', 20]];
 const MAGIC_DROP_CHANCE = { wolf: 0.3, bear: 0.5 };
 export const MAGIC_ITEM_LIFETIME = 60000;  // ms a dropped item floats before it vanishes
@@ -319,6 +322,8 @@ interface GameState {
   expireMagic: (id: string) => void;
   defeatPiranha: (id: string, position: Vec3) => void;
   piranhaBite: () => void;
+  devPowerup: (kind: DevPowerup, on: boolean) => void;   // Dev menu only
+  devAction: (action: DevAction, playerPos: Vec3) => void; // Dev menu only
 }
 
 // =====================================================================
@@ -1035,6 +1040,67 @@ export const useGameStore = create<GameState>((set, get) => ({
       set({ piranhaBites: s.piranhaBites + 1 });
       get().takeDamage(PIRANHA_BITE_DAMAGE);
   },
+
+  // ----- Dev menu (npm run dev only): switch power-ups and magic, spawn things to test -----
+  devPowerup: (kind, on) => set((state) => {
+      const now = Date.now();
+      switch (kind) {
+          case 'tree':
+              return on
+                  ? { isTreePowerupActive: true, treePowerupEndTime: now + TREE_POWERUP_DURATION }
+                  : { isTreePowerupActive: false, treePowerupEndTime: 0, treesChomped: [] };
+          case 'log':
+              return on
+                  ? { isLogPowerupActive: true, logPowerupEndTime: now + LOG_POWERUP_DURATION }
+                  : { isLogPowerupActive: false, logPowerupEndTime: 0 };
+          case 'speed':
+              return on
+                  ? { isSpeedPowerupActive: true, speedPowerupEndTime: now + SPEED_POWERUP_DURATION }
+                  : { isSpeedPowerupActive: false, speedPowerupEndTime: 0 };
+          default:
+              return { magic: { ...state.magic, [kind]: on ? now + MAGIC_INFO[kind].duration : 0 } };
+      }
+  }),
+
+  devAction: (action, playerPos) => set((state) => {
+      const now = Date.now();
+      const [px, , pz] = playerPos;
+      const f = playerState.facing;
+      switch (action) {
+          case 'magic': // A random magic item 3 m in front of Chucky
+              return { magicItems: [...state.magicItems, ...rollMagicDrop([px + Math.sin(f) * 3, playerPos[1], pz + Math.cos(f) * 3], 1)] };
+          case 'wood':
+              return { woodCount: state.woodCount + 50 };
+          case 'heal':
+              return { health: state.maxHealth };
+          case 'wolf':
+          case 'bear': {
+              // 8 m away on land, in front of Chucky if possible. They only stay at night (by day they
+              // leave within a second or two), so a solo game jumps to night too.
+              const night = state.mp.status === 'off' && !isNightTime(state.timeOfDay) ? { timeOfDay: 0.55 } : {};
+              const limit = MAP_SIZE / 2 - 10;
+              for (let i = 0; i < 12; i++) {
+                  const a = f + i * (Math.PI / 6);
+                  const mx = Math.max(-limit, Math.min(limit, px + Math.sin(a) * 8));
+                  const mz = Math.max(-limit, Math.min(limit, pz + Math.cos(a) * 8));
+                  const groundY = calculateTerrainHeight(mx, mz);
+                  if (groundY > WATER_LEVEL + 0.5) {
+                      return { mobs: [...state.mobs, { id: `mob-dev-${now}-${i}`, position: [mx, groundY + 2, mz], velocity: [0, 0, 0], type: action, createdAt: now }], ...night };
+                  }
+              }
+              return state;
+          }
+          case 'piranha': { // Move the piranha into the river level with Chucky
+              const z = Math.max(-130, Math.min(130, pz));
+              return { piranhas: [{ id: `piranha-dev-${now}`, position: [round3(getRiverX(z)), WATER_LEVEL - 1, round3(z)] }], piranhaRespawnAt: 0 };
+          }
+          case 'night':
+              return state.mp.status !== 'off' ? state : { timeOfDay: 0.55 }; // Joint games: the room owns the clock
+          case 'day':
+              return state.mp.status !== 'off' ? state : { timeOfDay: 0.05 };
+      }
+      return state;
+  }),
 
   // A wolf/bear took enough log hits: it runs off
   defeatMob: (id, position) => set((state) => {

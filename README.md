@@ -58,7 +58,7 @@ Welcome to **Chucky the Woodchuck**, a 3D game where you play as Chucky, an indu
 3. **Start the development server**:
    ```bash
    npm start
-   # or
+   # or, with the 🛠️ dev menu for testing power-ups:
    npm run dev
    ```
 
@@ -173,6 +173,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | `store.ts` | All game state and rules (Zustand): world generation, chomping, logs, combos, power-ups, building, demolition, saving and loading, leaderboard sync, camera mode and zoom. Gameplay tuning constants are at the top of the file. |
 | `components/Woodchuck.tsx` | The player: movement, collisions, swimming and diving, chomping, the placement preview, and the model. |
 | `components/Game3D.tsx` | The scene: canvas, cameras, day/night lighting, time and destruction managers, food, mobs, grass, graphics quality, environment-sound updates. |
+| `components/DevPanel.tsx` | The 🛠️ dev menu (`npm run dev` only): power-up and magic switches and test helpers. |
 | `components/Magic.tsx` | The river piranha (swims, chases, bites), magic items (float, pick up, expire) and the Log Shield (hits animals; rivals' shields hurt you in joint games). |
 | `components/WorldObjects.tsx` | Trees, boulders, loose logs (debris bundles), placed structures (instanced) and the placement preview. |
 | `components/Controls.tsx` | Joystick, dive button, zoom slider, top-right buttons and keyboard/mouse input. It writes to `window.woodchuckInput`. |
@@ -243,6 +244,15 @@ Open `public/chucky-facts.json`, change or add entries, and reload the game; the
 - `Game3D.tsx`: `QUALITY_SETTINGS` and `GRASS_QUALITY` (what each graphics setting does), `GRASS_TILE`, and the camera constants (`CHASE`, `OVERVIEW`, `TOP_DOWN_VIEW`, `CINEMATIC_VIEW`).
 - `services/audio.ts` (top): river, wind and underwater sound levels.
 - `store.ts` and `server/multiplayerServer.ts`: knock-out time, throw damage and knock-back, players per room, how long empty rooms are kept.
+
+### Dev menu
+
+`npm run dev` starts Vite in mode `devtools`, which adds a dashed 🛠️ button on the left of the game screen. It opens a panel where you can:
+- switch each power-up (Mega Chomp, Magnet, Zoomies) and each magic (Log Shield, Triple Chuck, Bubble Breath, Golden Teeth) on or off, with its countdown;
+- drop a magic item in front of Chucky, move the piranha into the river level with him, or spawn a wolf or bear 8 m away (they only stay at night, so a solo game jumps to night);
+- add 50 logs, heal to full, or jump to night or day (solo games only; a joint game's clock comes from the room).
+
+`npm start` and production builds don't show the button: `App.tsx` renders it behind `import.meta.env.DEV && import.meta.env.MODE === 'devtools'`, so it's left out of the build. Everyone who opens the game from an `npm run dev` server (also on your Wi-Fi) gets the button, so use `npm start` for real games.
 
 ### Checking your changes
 
