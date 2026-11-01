@@ -87,6 +87,7 @@ interface StructureCollider {
     boundR: number;
     topY: number;       // Highest point - Chucky can swim/walk over lower (e.g. sunken) structures
     segs: Float32Array; // x1, z1, x2, z2 per log
+    radii: Float32Array; // Log radius per segment (sticks are thinner)
 }
 
 const _q = new THREE.Quaternion();
@@ -98,22 +99,26 @@ const _axis = new THREE.Vector3();
 const buildCollider = (s: PlacedStructure, bp: Blueprint): StructureCollider => {
     _q.setFromEuler(_e.set(s.rotation[0], s.rotation[1], s.rotation[2]));
     const segs = new Float32Array(bp.logs.length * 4);
+    const radii = new Float32Array(bp.logs.length);
     let boundR = 0;
     let topY = -Infinity;
     bp.logs.forEach((log, i) => {
         _c.set(log.position[0], log.position[1], log.position[2]).applyQuaternion(_q);
         _lq.setFromEuler(_e.set(log.rotation[0], log.rotation[1], log.rotation[2]));
-        _axis.set(0, STRUCTURE_LOG_HALF_LENGTH, 0).applyQuaternion(_lq).applyQuaternion(_q);
+        const sc = log.scale ?? 1;
+        const rad = STRUCTURE_LOG_RADIUS * sc;
+        radii[i] = rad;
+        _axis.set(0, STRUCTURE_LOG_HALF_LENGTH * sc, 0).applyQuaternion(_lq).applyQuaternion(_q);
         const cx = s.position[0] + _c.x;
         const cz = s.position[2] + _c.z;
         segs[i * 4] = cx - _axis.x;
         segs[i * 4 + 1] = cz - _axis.z;
         segs[i * 4 + 2] = cx + _axis.x;
         segs[i * 4 + 3] = cz + _axis.z;
-        boundR = Math.max(boundR, Math.hypot(_c.x, _c.z) + STRUCTURE_LOG_HALF_LENGTH + STRUCTURE_LOG_RADIUS);
-        topY = Math.max(topY, s.position[1] + _c.y + Math.abs(_axis.y) + STRUCTURE_LOG_RADIUS);
+        boundR = Math.max(boundR, Math.hypot(_c.x, _c.z) + STRUCTURE_LOG_HALF_LENGTH * sc + rad);
+        topY = Math.max(topY, s.position[1] + _c.y + Math.abs(_axis.y) + rad);
     });
-    return { cx: s.position[0], cz: s.position[2], boundR, topY, segs };
+    return { cx: s.position[0], cz: s.position[2], boundR, topY, segs, radii };
 };
 
 // Horizontal radius of a blueprint around its origin (placement distance + spacing check)
@@ -123,7 +128,8 @@ const blueprintFootprint = (bp: Blueprint) => {
     if (r === undefined) {
         r = 0;
         for (const log of bp.logs) {
-            r = Math.max(r, Math.hypot(log.position[0], log.position[2]) + STRUCTURE_LOG_HALF_LENGTH + STRUCTURE_LOG_RADIUS);
+            const sc = log.scale ?? 1;
+            r = Math.max(r, Math.hypot(log.position[0], log.position[2]) + (STRUCTURE_LOG_HALF_LENGTH + STRUCTURE_LOG_RADIUS) * sc);
         }
         footprintCache.set(bp, r);
     }
@@ -408,7 +414,6 @@ export const Woodchuck = () => {
             }
         }
 
-        const minLogDist = PLAYER_RADIUS + STRUCTURE_LOG_RADIUS;
         const out = closest.current;
         let nearestStructId: string | null = null;
         let nearestStructDist = Infinity;
@@ -423,6 +428,7 @@ export const Woodchuck = () => {
             let structDist = Infinity;
             const segs = col.segs;
             for (let i = 0; i < segs.length; i += 4) {
+                const minLogDist = PLAYER_RADIUS + col.radii[i >> 2]; // Sticks are thinner
                 const d = closestOnSegment(nextX, nextZ, segs[i], segs[i + 1], segs[i + 2], segs[i + 3], out);
                 if (d < minLogDist) {
                     if (d > 0.001) {

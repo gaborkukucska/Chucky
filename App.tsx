@@ -327,11 +327,11 @@ const PlacementPanel = () => {
     return (
         <div className="fixed left-1.5 top-1/2 -translate-y-1/2 z-40 flex flex-col items-start gap-2 pointer-events-none">
             <div className="max-w-[11rem] bg-black/65 backdrop-blur-md border border-white/15 rounded-xl px-2 py-1 text-[10px] font-bold text-white shadow-lg leading-tight">
-                <div className="truncate">🏗️ {blueprint.name}</div>
+                <div className="truncate">{blueprint.icon ?? '🏗️'} {blueprint.name}</div>
                 <div className="truncate">
                     🪵 {blueprint.cost}<span className="text-white/50"> / {woodCount}</span>{' · '}
                     {valid
-                        ? <span className={inRiver ? 'text-cyan-300' : 'text-green-300'}>{inRiver ? '🌊 Dam! ×2.5 pts' : '✓ Ready'}</span>
+                        ? <span className={inRiver ? 'text-cyan-300' : 'text-green-300'}>{inRiver ? '🌊 In the river ×2.5 pts' : '✓ Ready'}</span>
                         : <span className="text-red-300">{reason}</span>}
                 </div>
             </div>
@@ -391,8 +391,11 @@ const BuildMenu = () => {
                                 <span className="text-2xl">🔒</span>
                             </div>
                         )}
-                        <span className="text-xl">🏗️</span>
+                        <span className="text-xl">{bp.icon ?? '🏗️'}</span>
                         <h3 className="text-white font-bold text-xs leading-tight text-center">{bp.name}</h3>
+                        {bp.description && (
+                            <p className="text-[9px] text-white/60 leading-snug text-center">{bp.description}</p>
+                        )}
                         <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${woodCount < bp.cost ? 'bg-red-900/50 text-red-200' : 'bg-amber-900/50 text-amber-200'}`}>
                             <span>🪵</span>
                             <span className="font-mono">{bp.cost}</span>

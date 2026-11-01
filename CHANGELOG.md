@@ -2,9 +2,39 @@
 
 All notable changes to Chucky the Woodchuck. Newest first.
 
-## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–15)
+## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–16)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 16: Beaver dams and lodges
+
+**New blueprints.** The 10 random log piles are now beaver structures. The costs, unlock scores and order are the same, so saves keep working: structures in old saves show up in the new shapes.
+
+| # | Blueprint | Logs | What it is |
+|---|---|---|---|
+| 1 | 🌿 Food Cache | 7 | A heap of branches for the winter |
+| 2 | 🌊 Starter Dam | 15 | A low line of logs and mud |
+| 3 | 🕳️ Bank Den | 30 | A mud-covered den with one entrance tunnel |
+| 4 | 🧱 Dam Wall | 60 | A straight dam, thick at the bottom, braced behind |
+| 5 | 🛖 Little Lodge | 120 | A dome with a hollow room, an air vent and one entrance |
+| 6 | 🌙 Curved Dam | 240 | Curves upstream like real beaver dams |
+| 7 | 🏠 Beaver Lodge | 480 | A big lodge with two entrances and a food cache |
+| 8 | 💧 Spillway Dam | 960 | Tall and curved, with a spillway notch |
+| 9 | 🏡 Family Lodge | 1,920 | Thick walls, three entrances, two food caches |
+| 10 | 👑 Beaver Kingdom | 3,840 | A curved spillway dam and a lower dam below it, with a lodge and two food caches in the pond |
+
+**How they're built.**
+- Dams run across your view and curve away from you, so face upstream to dam the river.
+- Lodge entrance tunnels sit at the bottom, so on the river bed they're under water while the dome rises out of it.
+- Each world adds a little seeded wobble, so no two look exactly alike, and every blueprint has exactly as many logs as it costs.
+- Mud is plastered over dams and lodges. It's free (only logs cost wood) and is for looks only.
+
+**Under the hood.**
+- A blueprint log can be a shorter, thinner stick (a scale per log). Drawing, physics and Chucky's collisions all use it.
+- Big structures now get one physics box per 4 m × 1 m × 4 m patch of logs instead of one box per layer, so thrown logs and animals no longer bump into empty air.
+- The build menu shows each blueprint's icon and a one-line description. The placement label now says "In the river ×2.5 pts" instead of "Dam!", because lodges built in the river get the bonus too.
+
+Files: `blueprints.ts` (new), plus `types.ts`, `store.ts`, `components/WorldObjects.tsx`, `components/Woodchuck.tsx`, `App.tsx`, `README.md`, `CHANGELOG.md`.
 
 ### Round 15: Log Shield logs point at Chucky; dev power-up menu
 

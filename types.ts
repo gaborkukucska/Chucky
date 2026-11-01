@@ -63,11 +63,28 @@ export interface BoulderData {
   scale: number;
 }
 
+// One log of a blueprint, relative to the structure's origin (see blueprints.ts)
+export interface BlueprintLog {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale?: number; // 1 = a 3 m log, 0.8 m thick; smaller = a stick (length and thickness)
+}
+
+// Mud plastered on a structure: a squashed sphere, for looks only (no collisions)
+export interface BlueprintMud {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+}
+
 export interface Blueprint {
     id: string;
     name: string;
-    cost: number;
-    logs: { position: [number, number, number], rotation: [number, number, number] }[]; // Relative offsets
+    icon?: string;
+    description?: string;
+    cost: number;       // Logs it takes = number of logs in it
+    logs: BlueprintLog[];
+    mud?: BlueprintMud[];
     unlocked: boolean;
     unlockScore?: number;
 }

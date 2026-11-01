@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useSphere, useCylinder, useCompoundBody } from '@react-three/cannon';
 import * as THREE from 'three';
 import { useGameStore, getRiverWidth, calculateTerrainHeight, MAP_SIZE } from '../store';
-import { TreeData, LogData, LooseLogData, BoulderData, PlacedStructure, Blueprint } from '../types';
+import { TreeData, LogData, LooseLogData, BoulderData, PlacedStructure, Blueprint, BlueprintMud } from '../types';
 import { currentWoodchuckPos, liveObjects, readBodyPosition, readBodyTransform } from '../globals';
 import { multiplayer, logCorrections, outgoingLogPositions } from '../services/multiplayer';
 import { audioService } from '../services/audio';
@@ -680,19 +680,25 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
 // Rendering: ONE instanced draw call per structure (was 3 meshes per log -
 // a 3,840-log structure meant ~11,500 meshes). Shared geometry/materials.
 // Physics: cheap box shapes - one per log for small structures, one per
-// layer for big ones (was a convex cylinder per log, which choked the
+// patch of logs for big ones (was a convex cylinder per log, which choked the
 // physics worker). Chucky's own collision is handled in Woodchuck.tsx.
+// Shapes come from blueprints.ts: logs can be scaled down into sticks, and
+// mud blobs are drawn as one more instanced mesh (looks only, no physics).
 // =====================================================================
 const STRUCTURE_LOG_RADIUS = 0.4;
 const STRUCTURE_LOG_LENGTH = 3;
-const PER_LOG_SHAPE_LIMIT = 24;   // Above this, approximate with one box per layer
-const LAYER_HEIGHT = 0.35;        // Matches the blueprint generator in store.ts
+const PER_LOG_SHAPE_LIMIT = 24;   // Above this, approximate with one box per patch of logs
+const SHAPE_CELL = 4;             // Big structures: logs grouped in 4 m x 1 m x 4 m patches (local frame)
+const SHAPE_BAND = 1;
 
 // CylinderGeometry groups: 0 = side (bark), 1 = top cap, 2 = bottom cap (end grain)
 const STRUCTURE_LOG_GEOMETRY = new THREE.CylinderGeometry(STRUCTURE_LOG_RADIUS, STRUCTURE_LOG_RADIUS, STRUCTURE_LOG_LENGTH, 8);
 const BARK_MATERIAL = new THREE.MeshStandardMaterial({ color: '#5D4037' });
 const END_GRAIN_MATERIAL = new THREE.MeshStandardMaterial({ color: '#8D6E63' });
 const STRUCTURE_MATERIALS = [BARK_MATERIAL, END_GRAIN_MATERIAL, END_GRAIN_MATERIAL];
+// Mud: dark, wet-looking blobs
+const MUD_GEOMETRY = new THREE.IcosahedronGeometry(1, 1); // 80 faces: plenty for a blob
+const MUD_MATERIAL = new THREE.MeshStandardMaterial({ color: '#3E2A1E', roughness: 0.9 });
 // Placement ghost: depth-tested so anything in front of it (Chucky, trees, terrain) hides it,
 // and depth-writing so grass behind it doesn't show through. It's drawn before the water
 // (PREVIEW_RENDER_ORDER), so parts below the river surface are still seen through the water.
@@ -722,6 +728,7 @@ const InstancedLogs = ({ logs, material, castShadow = false, receiveShadow = fal
         logs.forEach((log, i) => {
             dummy.position.set(log.position[0], log.position[1], log.position[2]);
             dummy.rotation.set(log.rotation[0], log.rotation[1], log.rotation[2]);
+            dummy.scale.setScalar(log.scale ?? 1); // Sticks are scaled-down logs
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
         });
@@ -744,6 +751,43 @@ const InstancedLogs = ({ logs, material, castShadow = false, receiveShadow = fal
     );
 };
 
+// Mud blobs of a structure: one InstancedMesh (same pattern as InstancedLogs)
+const InstancedMud = ({ mud, material, castShadow = false, receiveShadow = false, renderOrder }: {
+    mud: BlueprintMud[];
+    material: THREE.Material;
+    castShadow?: boolean;
+    receiveShadow?: boolean;
+    renderOrder?: number;
+}) => {
+    const [mesh, setMesh] = useState<THREE.InstancedMesh | null>(null);
+
+    useLayoutEffect(() => {
+        if (!mesh) return;
+        const dummy = new THREE.Object3D();
+        mud.forEach((m, i) => {
+            dummy.position.set(m.position[0], m.position[1], m.position[2]);
+            dummy.rotation.set(m.rotation[0], m.rotation[1], m.rotation[2]);
+            dummy.scale.set(m.scale[0], m.scale[1], m.scale[2]);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(i, dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.computeBoundingSphere();
+    }, [mesh, mud]);
+
+    return (
+        <instancedMesh
+            ref={setMesh}
+            args={[MUD_GEOMETRY, undefined, mud.length]}
+            material={material}
+            castShadow={castShadow}
+            receiveShadow={receiveShadow}
+            renderOrder={renderOrder}
+            dispose={null}
+        />
+    );
+};
+
 // Physics shapes per blueprint (cached - blueprints never change within a world)
 const shapeCache = new WeakMap<Blueprint, any[]>();
 const _shapeEuler = new THREE.Euler();
@@ -757,35 +801,43 @@ const buildStructureShapes = (blueprint: Blueprint) => {
     let shapes: any[];
     if (blueprint.logs.length <= PER_LOG_SHAPE_LIMIT) {
         // Small structures: one oriented box per log (logs are cylinders along local Y)
-        shapes = blueprint.logs.map(log => ({
-            type: 'Box',
-            position: log.position,
-            rotation: log.rotation,
-            args: [STRUCTURE_LOG_RADIUS * 2, STRUCTURE_LOG_LENGTH, STRUCTURE_LOG_RADIUS * 2]
-        }));
+        shapes = blueprint.logs.map(log => {
+            const sc = log.scale ?? 1;
+            return {
+                type: 'Box',
+                position: log.position,
+                rotation: log.rotation,
+                args: [STRUCTURE_LOG_RADIUS * 2 * sc, STRUCTURE_LOG_LENGTH * sc, STRUCTURE_LOG_RADIUS * 2 * sc]
+            };
+        });
     } else {
-        // Big structures: one axis-aligned box per layer covering that layer's logs
-        const layers = new Map<number, { minX: number; maxX: number; minZ: number; maxZ: number; sumY: number; n: number }>();
+        // Big structures: one axis-aligned box per patch of logs (4 m x 1 m x 4 m cells by
+        // log centre), covering those logs. Follows walls, domes and curves closely.
+        const patches = new Map<string, { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number }>();
         for (const log of blueprint.logs) {
+            const sc = log.scale ?? 1;
             _shapeQuat.setFromEuler(_shapeEuler.set(log.rotation[0], log.rotation[1], log.rotation[2]));
-            _shapeAxis.set(0, STRUCTURE_LOG_LENGTH / 2, 0).applyQuaternion(_shapeQuat);
-            const ex = Math.abs(_shapeAxis.x) + STRUCTURE_LOG_RADIUS;
-            const ez = Math.abs(_shapeAxis.z) + STRUCTURE_LOG_RADIUS;
-            const key = Math.round(log.position[1] / LAYER_HEIGHT);
-            const layer = layers.get(key) || { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity, sumY: 0, n: 0 };
-            layer.minX = Math.min(layer.minX, log.position[0] - ex);
-            layer.maxX = Math.max(layer.maxX, log.position[0] + ex);
-            layer.minZ = Math.min(layer.minZ, log.position[2] - ez);
-            layer.maxZ = Math.max(layer.maxZ, log.position[2] + ez);
-            layer.sumY += log.position[1];
-            layer.n += 1;
-            layers.set(key, layer);
+            _shapeAxis.set(0, (STRUCTURE_LOG_LENGTH / 2) * sc, 0).applyQuaternion(_shapeQuat);
+            const r = STRUCTURE_LOG_RADIUS * sc;
+            const ex = Math.abs(_shapeAxis.x) + r;
+            const ey = Math.abs(_shapeAxis.y) + r;
+            const ez = Math.abs(_shapeAxis.z) + r;
+            const [px, py, pz] = log.position;
+            const key = `${Math.floor(px / SHAPE_CELL)}|${Math.floor(py / SHAPE_BAND)}|${Math.floor(pz / SHAPE_CELL)}`;
+            const p = patches.get(key) || { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
+            p.minX = Math.min(p.minX, px - ex);
+            p.maxX = Math.max(p.maxX, px + ex);
+            p.minY = Math.min(p.minY, py - ey);
+            p.maxY = Math.max(p.maxY, py + ey);
+            p.minZ = Math.min(p.minZ, pz - ez);
+            p.maxZ = Math.max(p.maxZ, pz + ez);
+            patches.set(key, p);
         }
-        shapes = Array.from(layers.values()).map(l => ({
+        shapes = Array.from(patches.values()).map(p => ({
             type: 'Box',
-            position: [(l.minX + l.maxX) / 2, l.sumY / l.n, (l.minZ + l.maxZ) / 2],
+            position: [(p.minX + p.maxX) / 2, (p.minY + p.maxY) / 2, (p.minZ + p.maxZ) / 2],
             rotation: [0, 0, 0],
-            args: [l.maxX - l.minX, STRUCTURE_LOG_RADIUS * 2, l.maxZ - l.minZ]
+            args: [p.maxX - p.minX, p.maxY - p.minY, p.maxZ - p.minZ]
         }));
     }
     shapeCache.set(blueprint, shapes);
@@ -814,6 +866,9 @@ export const PlacedStructureRenderer = React.memo(({ data, blueprints }: { data:
     return (
         <group ref={ref as any}>
             <InstancedLogs logs={blueprint.logs} material={STRUCTURE_MATERIALS} castShadow receiveShadow />
+            {blueprint.mud && blueprint.mud.length > 0 && (
+                <InstancedMud mud={blueprint.mud} material={MUD_MATERIAL} castShadow receiveShadow />
+            )}
             {/* Health Bar Overlay if damaged */}
             {data.health < data.maxHealth && (
                 <mesh position={[0, 5, 0]}>
@@ -840,6 +895,9 @@ export const PreviewStructureOverlay = forwardRef<THREE.Group, { valid?: boolean
     return (
         <group ref={ref}>
             <InstancedLogs logs={blueprint.logs} material={valid ? PREVIEW_VALID_MATERIAL : PREVIEW_INVALID_MATERIAL} renderOrder={PREVIEW_RENDER_ORDER} />
+            {blueprint.mud && blueprint.mud.length > 0 && (
+                <InstancedMud mud={blueprint.mud} material={valid ? PREVIEW_VALID_MATERIAL : PREVIEW_INVALID_MATERIAL} renderOrder={PREVIEW_RENDER_ORDER} />
+            )}
         </group>
     );
 });

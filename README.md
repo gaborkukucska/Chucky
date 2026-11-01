@@ -5,7 +5,7 @@ Welcome to **Chucky the Woodchuck**, a 3D game where you play as Chucky, an indu
 ## 🌟 Features
 
 - **A new world every run**: Each game makes its own seeded world with a river, hills, 250 trees and boulders.
-- **Chomp, collect, build**: Chomp trees into logs, pick them up and build 10 kinds of structure, from a *Small Pile* (7 logs) to the *Woodchuck Palace* (3,840 logs). A structure built in the river scores more than one on land.
+- **Chomp, collect, build**: Chomp trees into logs, pick them up and build 10 beaver structures, from a *Food Cache* (7 logs) to the *Beaver Kingdom* (3,840 logs): dams that curve upstream, and lodges with an air vent and underwater entrance tunnels. A structure built in the river scores more than one on land.
 - **Combos and power-ups**:
   - **Combo**: collect logs quickly to raise a multiplier up to 4x.
   - **Mega Chomp**: chomp 3 trees within 30 seconds to chomp every tree around you.
@@ -118,7 +118,7 @@ When you start your first game, Chucky explains the basics in a speech bubble (N
 
 1. **Chomp trees**: walk up against a tree trunk and Chucky chomps it automatically. The bar at the top shows the tree's health. Felled trees drop logs and sometimes an apple or a berry.
 2. **Collect logs**: walk over logs to pick them up. Picking logs up quickly builds your combo.
-3. **Build**: tap 🏗️, pick an unlocked blueprint and place it. The see-through preview is cyan when the spot is valid and red when it isn't (not enough wood, too close to another structure, or off the map).
+3. **Build**: tap 🏗️, pick an unlocked blueprint and place it. Dams are built across your view and curve away from you, so face upstream to dam the river. Build lodges in the shallows: the entrance tunnels sit at the bottom, so they end up under water while the dome rises out of it. The see-through preview is cyan when the spot is valid and red when it isn't (not enough wood, too close to another structure, or off the map).
 4. **Eat**: apples heal 20 and berries heal 10 (up to 200% health). Every 3rd berry gives you Zoomies.
 5. **Survive the night**: wolves and bears hurt. Stay clear, head for the water, or throw logs at them (🪵): a wolf runs off after 2 hits (+20 points) and a bear after 3 (+40). Chased-off animals sometimes leave a magic item behind (see the features above).
 6. **Mind the piranha**: there's one in the river. It chases and bites you while you swim. Two log hits chase it off: throw from the bank as it comes close, or use a Log Shield.
@@ -170,6 +170,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 
 | Path | Purpose |
 |---|---|
+| `blueprints.ts` | The 10 blueprints: dams, lodges and food caches built from logs, sticks (scaled-down logs) and mud, sized to exactly their cost. |
 | `store.ts` | All game state and rules (Zustand): world generation, chomping, logs, combos, power-ups, building, demolition, saving and loading, leaderboard sync, camera mode and zoom. Gameplay tuning constants are at the top of the file. |
 | `components/Woodchuck.tsx` | The player: movement, collisions, swimming and diving, chomping, the placement preview, and the model. |
 | `components/Game3D.tsx` | The scene: canvas, cameras, day/night lighting, time and destruction managers, food, mobs, grass, graphics quality, environment-sound updates. |
@@ -239,7 +240,8 @@ Open `public/chucky-facts.json`, change or add entries, and reload the game; the
 
 ### Useful tuning knobs
 
-- `store.ts` (top): tree and boulder counts, food drop chance, power-up durations, combo windows, unlock thresholds, build points, debris limits, leaderboard sync interval.
+- `store.ts` (top): tree and boulder counts, food drop chance, power-up durations, combo windows, build points, debris limits, leaderboard sync interval.
+- `blueprints.ts`: unlock scores, and each blueprint's name, cost, icon, description and shape (dam length and height, lodge size, entrances).
 - `Woodchuck.tsx` (top): walk and swim speed, acceleration, turn and steer rates, diving and breath, chomp damage and reach, placement spacing.
 - `Game3D.tsx`: `QUALITY_SETTINGS` and `GRASS_QUALITY` (what each graphics setting does), `GRASS_TILE`, and the camera constants (`CHASE`, `OVERVIEW`, `TOP_DOWN_VIEW`, `CINEMATIC_VIEW`).
 - `services/audio.ts` (top): river, wind and underwater sound levels.

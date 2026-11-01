@@ -6,6 +6,7 @@ import { audioService, AudioChannel, AudioSettings } from './services/audio';
 import { multiplayer, canDemolish, MP_OFF, MpState } from './services/multiplayer';
 import type { Fact } from './services/facts';
 import { persistence, SaveData, SAVE_VERSION, sanitizeName } from './services/persistence';
+import { generateBlueprints, BLUEPRINT_THRESHOLDS } from './blueprints';
 import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, readBodyTransform } from './globals';
 
 export const MAP_SIZE = 300;
@@ -28,8 +29,7 @@ const LOG_POWERUP_DURATION = 30000;    // Magnet
 export const BERRIES_FOR_ZOOMIES = 3;  // Berries to eat to trigger Zoomies
 const SPEED_POWERUP_DURATION = 20000;  // Zoomies
 
-// Score needed to unlock each blueprint (index 0 = unlocked by collecting 3 logs)
-const BLUEPRINT_THRESHOLDS = [0, 150, 300, 500, 750, 1050, 1400, 1800, 2250, 2750];
+// Blueprints, their shapes and unlock scores: blueprints.ts
 
 // Combo: collect the next log before the window runs out; every 2 logs = +1 multiplier (max 4x).
 // Shorter windows at higher multipliers. (Previously the HUD and the store used different,
@@ -395,66 +395,6 @@ const mulberry32 = (seed: number) => () => {
 };
 
 export const newWorldSeed = () => Math.floor(Math.random() * 2147483647);
-
-const generateBlueprints = (rand: () => number): Blueprint[] => {
-    const blueprints: Blueprint[] = [];
-    const baseCosts = [7, 15, 30, 60, 120, 240, 480, 960, 1920, 3840];
-    const names = [
-        "Small Pile", "Log Line", "Corner Wall", "Box Frame", "River Gate",
-        "Dam Segment", "Fortress Wall", "Tower Base", "Mega Dam", "Woodchuck Palace"
-    ];
-
-    for (let i = 0; i < 10; i++) {
-        const cost = baseCosts[i];
-        const logs: { position: Vec3, rotation: Vec3 }[] = [];
-
-        // Procedurally generate log positions based on cost/complexity
-        // Make it more chaotic and natural pile-like
-        const rows = Math.ceil(Math.sqrt(cost));
-        const cols = Math.ceil(cost / rows);
-
-        let count = 0;
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                if (count >= cost) break;
-
-                // Base grid position
-                let x = (c - cols/2) * 0.7; // Spread out a bit more
-                let y = r * 0.35;
-                let z = (rand() - 0.5) * 0.4; // More Z variation
-
-                // Add SIGNIFICANT chaos
-                x += (rand() - 0.5) * 0.8;
-                y += (rand() - 0.5) * 0.2;
-                z += (rand() - 0.5) * 0.8;
-
-                // Rotation chaos
-                // Base rotation alternates per layer, but add random tilt
-                let rotY = r % 2 === 0 ? 0 : Math.PI / 2;
-                rotY += (rand() - 0.5) * 1.5; // +/- ~45 degrees
-
-                const rotX = (rand() - 0.5) * 0.5; // More tilt
-                const rotZ = (rand() - 0.5) * 0.5; // More tilt
-
-                logs.push({
-                    position: [x, y, z],
-                    rotation: [rotX, rotY, rotZ]
-                });
-                count++;
-            }
-        }
-
-        blueprints.push({
-            id: `bp-${i}`,
-            name: names[i],
-            cost: cost,
-            logs: logs,
-            unlocked: false, // All locked initially
-            unlockScore: i === 0 ? 0 : BLUEPRINT_THRESHOLDS[i] // 0 is special case for 3 logs
-        });
-    }
-    return blueprints;
-};
 
 const generateTrees = (seed: number, rand: () => number): TreeData[] =>
     Array.from({ length: TREE_COUNT }).map((_, i) => {
