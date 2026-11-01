@@ -5,7 +5,8 @@
     "facts: shown as you play, one at a time, each only once per device (Settings > Hear all the facts again resets that).",
     "Every entry needs a unique \"id\" and a \"text\". A fact's optional \"when\" says what you must have reached first:",
     "  logs = logs collected, trees = trees felled, score = points, day = day number, built = structures you built,",
-    "  throws = logs thrown, chased = wolves/bears chased off, swim = 1 after your first swim, night = 1 after your first night.",
+    "  throws = logs thrown, chased = wolves/bears/piranhas chased off, swim = times you've gone into the water,",
+    "  night = nights seen, bitten = piranha bites.",
     "  Several keys = all of them. Facts without \"when\" come up one by one every few minutes of play.",
     "Facts are shown in the order they appear here, at most one every 40 seconds."
   ],
@@ -39,6 +40,7 @@
     { "id": "kits", "when": { "day": 5 }, "text": "Baby beavers are called kits. They live with their parents and older brothers and sisters in a family colony." },
     { "id": "biggest-dam", "when": { "score": 1500 }, "text": "The biggest known beaver dam is in Wood Buffalo National Park in Canada. It's about 850 metres long!" },
     { "id": "two-species", "when": { "score": 2500 }, "text": "There are two kinds of beaver: the North American beaver and the Eurasian beaver. They look alike, but they can't have babies together." },
+    { "id": "piranha-myth", "when": { "bitten": 1 }, "text": "Ouch! Myth buster: real piranhas rarely attack big animals, and the 'skeleton in seconds' stories are mostly movie magic. They live in South America, not in beaver rivers - this one is a game monster!" },
     { "id": "winter-pantry", "text": "Before winter, beavers stash branches underwater next to the lodge - a food pantry they can reach even when the pond freezes over." },
     { "id": "giant-beaver", "text": "Long ago, a giant beaver about the size of a black bear lived in North America. Imagine the size of its dams!" }
   ]

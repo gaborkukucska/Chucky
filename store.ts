@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
+import { MagicType, MagicItemData, PiranhaData } from './types';
 import { GamePhase, CameraMode, GraphicsQuality, TreeData, LogData, LooseLogData, BoulderData, Blueprint, PlacedStructure, ComboState, Notification, MobData, FoodData } from './types';
 import { audioService, AudioChannel, AudioSettings } from './services/audio';
 import { multiplayer, canDemolish, MP_OFF, MpState } from './services/multiplayer';
@@ -79,10 +80,10 @@ const THROW_SPAWN_UP = 0.5;
 export const throwPowerForCharge = (heldMs: number) => Math.max(0, Math.min(1, heldMs / THROW_CHARGE_MS));
 
 /** Where a throw starts and how fast it goes. scatter = false: the exact aim (trajectory guide) */
-export const throwLaunch = (power: number, scatter: boolean) => {
+export const throwLaunch = (power: number, scatter: boolean, yawOffset = 0) => {
     const jitter = (amount: number) => (scatter ? (Math.random() * 2 - 1) * amount : 0);
     const aim = playerState.facing;
-    const facing = aim + jitter(THROW_SCATTER_YAW);
+    const facing = aim + yawOffset + jitter(THROW_SCATTER_YAW);
     const speed = (THROW_SPEED_MIN + (THROW_SPEED_MAX - THROW_SPEED_MIN) * power) * (1 + jitter(THROW_SCATTER_SPEED));
     const lift = THROW_LIFT_MIN + (THROW_LIFT_MAX - THROW_LIFT_MIN) * power + jitter(THROW_SCATTER_LIFT * (0.4 + 0.6 * power));
     const p = currentWoodchuckPos;
@@ -102,6 +103,25 @@ const randomSpin = (): Vec3 => {
     return [round3(r * Math.cos(a) * rate), round3(u * rate), round3(r * Math.sin(a) * rate)];
 };
 const MOB_DEFEAT_POINTS = { wolf: 20, bear: 40 };
+
+// Magic items, dropped by chased-off wolves, bears and piranhas
+export const MAGIC_INFO: Record<MagicType, { icon: string; label: string; duration: number; color: string; message: string }> = {
+    shield: { icon: '🛡️', label: 'Log Shield', duration: 20000, color: '#F59E0B', message: 'Six logs whirl around you for 20 seconds - they bonk wolves, bears, piranhas and rival players!' },
+    triple: { icon: '✨', label: 'Triple Chuck', duration: 25000, color: '#A78BFA', message: 'Every throw launches three logs for 25 seconds. The two magic ones vanish after landing.' },
+    bubble: { icon: '🫧', label: 'Bubble Breath', duration: 30000, color: '#38BDF8', message: 'Endless air underwater for 30 seconds - dive as long as you like!' },
+    double: { icon: '🌟', label: 'Golden Teeth', duration: 30000, color: '#FACC15', message: 'Trees you fell drop twice the logs for 30 seconds!' },
+};
+const MAGIC_WEIGHTS: [MagicType, number][] = [['shield', 35], ['triple', 25], ['bubble', 20], ['double', 20]];
+const MAGIC_DROP_CHANCE = { wolf: 0.3, bear: 0.5 };
+export const MAGIC_ITEM_LIFETIME = 60000;  // ms a dropped item floats before it vanishes
+const NO_MAGIC: Record<MagicType, number> = { shield: 0, triple: 0, bubble: 0, double: 0 }; // End times
+const TRIPLE_SPREAD = 0.21;                // rad (~12°) - Triple Chuck's side logs
+
+// The river piranha
+const PIRANHA_POINTS = 50;
+const PIRANHA_BITE_DAMAGE = 8;
+const PIRANHA_RESPAWN_MIN_MS = 180000;     // A new one turns up 3-5 minutes after one is chased off
+const PIRANHA_RESPAWN_MAX_MS = 300000;
 
 // Joint games
 const KO_DURATION_MS = 5000;        // Knocked out this long, then back at the river bank
@@ -153,6 +173,12 @@ interface GameState {
   treesFelled: number;           // This game's progress, for Chucky's facts
   throwsMade: number;
   mobsChased: number;
+  magic: Record<MagicType, number>;  // Active magic: end time per type (0 = off)
+  magicItems: MagicItemData[];
+  piranhas: PiranhaData[];
+  piranhaRespawnAt: number;      // When the next piranha turns up (0 = none pending)
+  piranhaBites: number;          // This game, for Chucky's facts
+  magicFound: number;
   woodCount: number;
   score: number;
   totalLogsCollected: number;
@@ -283,12 +309,16 @@ interface GameState {
   setQuality: (quality: GraphicsQuality) => void;
   setAudioChannel: (channel: AudioChannel, enabled: boolean) => void;
   throwLog: (power?: number) => boolean;
-  takeThrowHit: (by: string, dirX: number, dirZ: number) => void;
+  takeThrowHit: (by: string, dirX: number, dirZ: number, damage?: number) => void;
   mpRespawn: () => void;
   showChucky: (items: Fact[], kind: 'intro' | 'fact') => void;
   nextChucky: () => void;
   closeChucky: () => void;
-  defeatMob: (id: string) => void;
+  defeatMob: (id: string, position?: Vec3) => void;
+  collectMagic: (id: string) => void;
+  expireMagic: (id: string) => void;
+  defeatPiranha: (id: string, position: Vec3) => void;
+  piranhaBite: () => void;
 }
 
 // =====================================================================
@@ -504,6 +534,11 @@ const resumeFields = (state: GameState): Partial<GameState> => {
         treePowerupEndTime: state.isTreePowerupActive ? state.treePowerupEndTime + d : state.treePowerupEndTime,
         logPowerupEndTime: state.isLogPowerupActive ? state.logPowerupEndTime + d : state.logPowerupEndTime,
         speedPowerupEndTime: state.isSpeedPowerupActive ? state.speedPowerupEndTime + d : state.speedPowerupEndTime,
+        // Active magic doesn't run out while paused either
+        magic: (Object.keys(state.magic) as MagicType[]).reduce((m, t) => {
+            m[t] = state.magic[t] > state.lastPauseStartTime ? state.magic[t] + d : state.magic[t];
+            return m;
+        }, { ...NO_MAGIC }),
     };
 };
 
@@ -512,6 +547,33 @@ const notifyAndPause = (state: GameState, notification: Notification): Partial<G
     notification,
     ...pauseFields(state),
 });
+
+// A piranha somewhere in the river, not right next to Chucky
+const newPiranha = (avoid: Vec3): PiranhaData => {
+    let z = 0;
+    for (let i = 0; i < 20; i++) {
+        z = (Math.random() * 2 - 1) * 120;
+        if (Math.abs(z - avoid[2]) > 40) break;
+    }
+    return { id: `piranha-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, position: [round3(getRiverX(z)), WATER_LEVEL - 1, round3(z)] };
+};
+
+// Maybe drop a magic item where an animal was chased off
+const rollMagicDrop = (position: Vec3, chance: number): MagicItemData[] => {
+    if (Math.random() >= chance) return [];
+    let r = Math.random() * MAGIC_WEIGHTS.reduce((sum, [, w]) => sum + w, 0);
+    let type: MagicType = MAGIC_WEIGHTS[0][0];
+    for (const [t, w] of MAGIC_WEIGHTS) {
+        r -= w;
+        if (r <= 0) {
+            type = t;
+            break;
+        }
+    }
+    const ground = Math.max(calculateTerrainHeight(position[0], position[2]), WATER_LEVEL);
+    const now = Date.now();
+    return [{ id: `magic-${now}-${Math.floor(Math.random() * 1e6)}`, type, position: roundVec([position[0], ground + 0.2, position[2]]), createdAt: now }];
+};
 
 const EMPTY_COMBO: ComboState = { active: false, startTime: 0, logsCollected: 0, multiplier: 1, lastLogTime: 0, logsSinceLastLevel: 0, levelStartTime: 0 };
 
@@ -697,6 +759,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   treesFelled: 0,
   throwsMade: 0,
   mobsChased: 0,
+  magic: { ...NO_MAGIC },
+  magicItems: [],
+  piranhas: [],
+  piranhaRespawnAt: 0,
+  piranhaBites: 0,
+  magicFound: 0,
   isPlacementMode: false,
   isBuildMenuOpen: false,
   selectedBlueprintId: null,
@@ -761,6 +829,12 @@ export const useGameStore = create<GameState>((set, get) => ({
           treesFelled: 0,
           throwsMade: 0,
           mobsChased: 0,
+          magic: { ...NO_MAGIC },
+          magicItems: [],
+          piranhas: [newPiranha([-15, 0, 20])], // One lurks in the river from the start
+          piranhaRespawnAt: 0,
+          piranhaBites: 0,
+          magicFound: 0,
           leaderboardRank: null,
           spawnPoint: null,
           spawnFacing: Math.PI / 2,
@@ -846,6 +920,23 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (s.phase !== 'PLAYING' || s.isPaused || s.isGameMenuOpen || s.isBuildMenuOpen) return false;
       if (s.isInWater || s.woodCount < 1 || now - s.lastThrowTime < THROW_COOLDOWN_MS || s.koUntil > 0) return false;
       const launch = throwLaunch(power, true);
+      const mpFields = s.mp.status === 'playing' ? { owner: s.mp.myId, thrownBy: s.mp.myId, team: s.mp.team } : {};
+      // Triple Chuck: two magic logs either side (can't be picked up, vanish after landing)
+      const extra: LooseLogData[] = s.magic.triple > now ? [-1, 1].map((side): LooseLogData => {
+          const l = throwLaunch(power, true, side * TRIPLE_SPREAD);
+          return {
+              id: `throw-${now}-${side < 0 ? 'l' : 'r'}-${Math.floor(Math.random() * 1e6)}`,
+              position: roundVec(l.position),
+              rotation: [0, round3(l.facing), round3(Math.PI / 2)],
+              createdAt: now,
+              velocity: roundVec(l.velocity),
+              spin: randomSpin(),
+              thrown: true,
+              fleeting: true,
+              value: 1,
+              ...mpFields,
+          };
+      }) : [];
       const log: LooseLogData = {
           id: `throw-${now}-${Math.floor(Math.random() * 1e6)}`,
           position: roundVec(launch.position),
@@ -855,23 +946,23 @@ export const useGameStore = create<GameState>((set, get) => ({
           spin: randomSpin(),
           thrown: true,
           value: 1,
-          ...(s.mp.status === 'playing' ? { owner: s.mp.myId, thrownBy: s.mp.myId, team: s.mp.team } : {}),
+          ...mpFields,
       };
-      set({ woodCount: s.woodCount - 1, lastThrowTime: now, looseLogs: [...s.looseLogs, log], throwsMade: s.throwsMade + 1 });
-      multiplayer.sendLogs([log]);
+      set({ woodCount: s.woodCount - 1, lastThrowTime: now, looseLogs: [...s.looseLogs, log, ...extra], throwsMade: s.throwsMade + 1 });
+      multiplayer.sendLogs([log, ...extra]);
       audioService.playThrow();
       return true;
   },
 
   // Joint games: another player's thrown log hit us
-  takeThrowHit: (by, dirX, dirZ) => {
+  takeThrowHit: (by, dirX, dirZ, damage = THROW_PLAYER_DAMAGE) => {
       const s = get();
       if (s.phase !== 'PLAYING' || s.koUntil > 0) return;
       playerState.impulseX += dirX * THROW_PLAYER_KNOCKBACK;
       playerState.impulseZ += dirZ * THROW_PLAYER_KNOCKBACK;
       set({ lastHitBy: by });
       multiplayer.sendHit(by);
-      get().takeDamage(THROW_PLAYER_DAMAGE);
+      get().takeDamage(damage);
   },
 
   // Joint games: back on your feet at the river bank after a knock-out (score and the
@@ -901,8 +992,52 @@ export const useGameStore = create<GameState>((set, get) => ({
       ? { chucky: null, ...(state.isGameMenuOpen || state.isBuildMenuOpen || state.notification ? {} : resumeFields(state)) }
       : state)),
 
+  // Walked into a magic item: start (or extend) its power
+  collectMagic: (id) => set((state) => {
+      const item = state.magicItems.find(m => m.id === id);
+      if (!item) return state;
+      const info = MAGIC_INFO[item.type];
+      audioService.playLevelUp();
+      return {
+          magicItems: state.magicItems.filter(m => m.id !== id),
+          magic: { ...state.magic, [item.type]: Math.max(Date.now(), state.magic[item.type]) + info.duration },
+          magicFound: state.magicFound + 1,
+          notification: { id: `magic-${id}`, title: `${info.icon} ${info.label.toUpperCase()}!`, message: info.message, type: 'info' },
+      };
+  }),
+
+  expireMagic: (id) => set((state) => ({ magicItems: state.magicItems.filter(m => m.id !== id) })),
+
+  // Two log hits: the piranha swims off (always leaves magic behind); another comes later
+  defeatPiranha: (id, position) => set((state) => {
+      if (!state.piranhas.some(p => p.id === id)) return state;
+      const unlocks = applyUnlocks(state.blueprints, state.totalLogsCollected, state.score + PIRANHA_POINTS);
+      audioService.playLevelUp();
+      return {
+          piranhas: state.piranhas.filter(p => p.id !== id),
+          piranhaRespawnAt: Date.now() + PIRANHA_RESPAWN_MIN_MS + Math.random() * (PIRANHA_RESPAWN_MAX_MS - PIRANHA_RESPAWN_MIN_MS),
+          magicItems: [...state.magicItems, ...rollMagicDrop(position, 1)],
+          mobsChased: state.mobsChased + 1,
+          score: unlocks.score,
+          blueprints: unlocks.blueprints,
+          notification: unlocks.notification ?? {
+              id: `piranha-${id}`,
+              title: 'PIRANHA CHASED OFF!',
+              message: `Splash! +${PIRANHA_POINTS} points - and it left something magic behind!`,
+              type: 'achievement',
+          },
+      };
+  }),
+
+  piranhaBite: () => {
+      const s = get();
+      if (s.phase !== 'PLAYING' || s.koUntil > 0) return;
+      set({ piranhaBites: s.piranhaBites + 1 });
+      get().takeDamage(PIRANHA_BITE_DAMAGE);
+  },
+
   // A wolf/bear took enough log hits: it runs off
-  defeatMob: (id) => set((state) => {
+  defeatMob: (id, position) => set((state) => {
       const mob = state.mobs.find(m => m.id === id);
       if (!mob) return state;
       const points = MOB_DEFEAT_POINTS[mob.type];
@@ -911,6 +1046,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       return {
           mobs: state.mobs.filter(m => m.id !== id),
           mobsChased: state.mobsChased + 1,
+          magicItems: position ? [...state.magicItems, ...rollMagicDrop(position, MAGIC_DROP_CHANCE[mob.type])] : state.magicItems,
           score: unlocks.score,
           blueprints: unlocks.blueprints,
           notification: unlocks.notification ?? {
@@ -1006,7 +1142,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     // Spawn multiple logs based on tree size
     const newLooseLogs: LooseLogData[] = [];
-    const logCount = tree.size === 'large' ? 3 : tree.size === 'medium' ? 2 : 1;
+    // Golden Teeth: twice the logs
+    const logCount = (tree.size === 'large' ? 3 : tree.size === 'medium' ? 2 : 1) * (state.magic.double > now ? 2 : 1);
     for (let i = 0; i < logCount; i++) {
         // Scatter logs more widely
         const angle = (Math.PI * 2 * i) / logCount + Math.random();
@@ -1514,6 +1651,10 @@ export const useGameStore = create<GameState>((set, get) => ({
               lastChompTime: 0,
               combo: { ...EMPTY_COMBO },
               mobs: [],
+              magic: { ...NO_MAGIC },
+              magicItems: [],
+              piranhas: [newPiranha(data.player.position)],
+              piranhaRespawnAt: 0,
               activeTreeId: null,
               notification: null,
               isBuildMenuOpen: false,
@@ -1637,7 +1778,16 @@ export const useGameStore = create<GameState>((set, get) => ({
           newHealth = Math.max(state.maxHealth, newHealth - 0.2 * delta);
       }
 
-      return { timeOfDay: newTime, day: newDay, mobs: newMobs, health: newHealth };
+      // A new piranha a few minutes after the last one was chased off
+      const piranhaReturns = state.piranhas.length === 0 && state.piranhaRespawnAt > 0 && Date.now() >= state.piranhaRespawnAt;
+
+      return {
+          timeOfDay: newTime,
+          day: newDay,
+          mobs: newMobs,
+          health: newHealth,
+          ...(piranhaReturns ? { piranhas: [newPiranha(playerPos)], piranhaRespawnAt: 0 } : {}),
+      };
   }),
 
   spawnMob: (playerPos) => set((state) => {

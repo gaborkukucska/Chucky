@@ -1,6 +1,8 @@
 import React, { Component, useEffect, useState, ReactNode } from 'react';
 import { Game3D } from './components/Game3D';
 import { Controls } from './components/Controls';
+import type { MagicType } from './types';
+import { MAGIC_INFO } from './store';
 import { useGameStore, isNightTime, BERRIES_FOR_ZOOMIES, getComboDeadline, getComboWindow, COMBO_LOGS_PER_LEVEL, COMBO_MAX_MULTIPLIER } from './store';
 import { audioService } from './services/audio';
 import { persistence, SaveSlotInfo, LeaderboardEntry, SAVE_SLOTS } from './services/persistence';
@@ -210,8 +212,10 @@ const PowerupPills = () => {
     const logPowerupEndTime = useGameStore(state => state.logPowerupEndTime);
     const speedPowerupEndTime = useGameStore(state => state.speedPowerupEndTime);
     const isPaused = useGameStore(state => state.isPaused);
+    const magic = useGameStore(state => state.magic);
+    const activeMagic = (Object.keys(MAGIC_INFO) as MagicType[]).filter(t => magic[t] > Date.now());
 
-    const anyActive = isTreePowerupActive || isLogPowerupActive || isSpeedPowerupActive;
+    const anyActive = isTreePowerupActive || isLogPowerupActive || isSpeedPowerupActive || activeMagic.length > 0;
     const [, setTick] = useState(0);
     useEffect(() => {
         if (!anyActive || isPaused) return;
@@ -235,6 +239,9 @@ const PowerupPills = () => {
             {isTreePowerupActive && pill('🪓', 'Mega Chomp', treePowerupEndTime, 'border-orange-500')}
             {isLogPowerupActive && pill('🧲', 'Magnet', logPowerupEndTime, 'border-blue-500')}
             {isSpeedPowerupActive && pill('⚡', 'Zoomies', speedPowerupEndTime, 'border-emerald-400')}
+            {activeMagic.map(t => (
+                <React.Fragment key={t}>{pill(MAGIC_INFO[t].icon, MAGIC_INFO[t].label, magic[t], 'border-fuchsia-400')}</React.Fragment>
+            ))}
         </div>
     );
 };

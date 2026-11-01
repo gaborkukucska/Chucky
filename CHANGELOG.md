@@ -2,9 +2,35 @@
 
 All notable changes to Woodchuck Dam Builder 3000 (*Chucky*). Newest first.
 
-## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–12)
+## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–13)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 13: Magic drops, Log Shield and the river piranha
+
+**Magic items.** Chased-off animals drop a glowing, floating magic item: wolves 30% of the time, bears 50%, and piranhas always. Walk into it to get one of these:
+- 🛡️ **Log Shield** (20 s): six logs orbit Chucky. They bonk wolves, bears and piranhas, and rival players in joint games (10 damage plus a knock-back). Team mates are safe.
+- ✨ **Triple Chuck** (25 s): every throw launches three logs. The two magic ones glow, can't be picked up, and vanish 3.5 s after the throw, so there's no free wood.
+- 🫧 **Bubble Breath** (30 s): endless air underwater.
+- 🌟 **Golden Teeth** (30 s): felled trees drop twice the logs.
+
+Items float for 60 s and blink before they vanish. Active magic shows as a pill under the buttons, and it doesn't run out while a solo game is paused. Picking up the same magic again adds more time.
+
+**River piranha.** One piranha lurks in the river from the start.
+- It wanders up and down with its dark red fin poking out of the water, and it never leaves the river.
+- It chases you if you swim within about 22 m, at a little slower than you swim.
+- It bites for 8 damage while you're in the water.
+- Two log hits, from a throw or the Log Shield, chase it off for 50 points and a guaranteed magic item. Another one turns up 3 to 5 minutes later.
+- Like wolves and bears, each player has their own.
+
+**Chucky's facts.**
+- `swim` now counts how many times you've gone into the water, and `night` counts nights. Facts like `"swim": 2` used to wait forever, because these were yes/no.
+- A new `bitten` key counts piranha bites.
+- A new piranha myth-buster shows after your first bite, and `chased` now counts piranhas too.
+
+**Joint games.** A rival's Log Shield is visible and checked against your own Chucky. Triple Chuck's magic logs travel to the other players too.
+
+Files: `components/Magic.tsx` (new), plus `types.ts`, `store.ts`, `App.tsx`, `components/Game3D.tsx`, `components/Woodchuck.tsx`, `components/WorldObjects.tsx`, `components/RemotePlayers.tsx`, `services/multiplayer.ts`, `server/multiplayerServer.ts`, `services/facts.ts`, `public/chucky-facts.json`, `README.md`, `CHANGELOG.md`.
 
 ### Round 12: Chucky the beaver and his fact nuggets
 

@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { useGameStore } from '../store';
 import { currentWoodchuckPos, playerState } from '../globals';
 import { multiplayer, remotePlayers, TEAM_INFO, Team, RemoteSample } from '../services/multiplayer';
+import { ShieldLogs, SHIELD_SPIN } from './Magic';
 
 const WATER_LEVEL = -1.5;
 const INTERP_DELAY_MS = 120;   // Render others slightly in the past so movement is smooth between updates
@@ -56,6 +57,7 @@ const RemoteChucky = React.memo(({ id, name, team }: { id: string; name: string;
     const rootRef = useRef<THREE.Group>(null);
     const bodyRef = useRef<THREE.Group>(null);
     const headRef = useRef<THREE.Group>(null);
+    const shieldRef = useRef<THREE.Group>(null);
     const color = TEAM_INFO[team]?.color ?? '#e5e7eb';
     const texture = useMemo(() => makeNameTexture(name, color), [name, color]);
     useEffect(() => () => texture.dispose(), [texture]);
@@ -105,6 +107,12 @@ const RemoteChucky = React.memo(({ id, name, team }: { id: string; name: string;
         if (headRef.current) {
             headRef.current.rotation.x = cur.ch && !cur.ko ? Math.sin(state.clock.elapsedTime * 30) * 0.3 : 0;
         }
+        // Their Log Shield (spins in world space, not with their facing)
+        if (shieldRef.current) {
+            shieldRef.current.visible = cur.sh && !cur.ko;
+            shieldRef.current.position.y = 0.3;
+            shieldRef.current.rotation.y = state.clock.elapsedTime * SHIELD_SPIN - root.rotation.y;
+        }
     });
 
     return (
@@ -143,6 +151,7 @@ const RemoteChucky = React.memo(({ id, name, team }: { id: string; name: string;
                     <meshStandardMaterial color="#3E2723" roughness={0.95} />
                 </mesh>
             </group>
+            <ShieldLogs groupRef={shieldRef} />
             <sprite position={[0, 2.6, 0]} scale={[2.4, 0.6, 1]} renderOrder={20}>
                 <spriteMaterial map={texture} transparent depthWrite={false} />
             </sprite>
@@ -175,6 +184,7 @@ export const MultiplayerSync = () => {
             p: [p.x, p.y, p.z],
             f: playerState.facing,
             sw: s.isInWater,
+            sh: s.magic.shield > Date.now(),
             dv: s.isInWater && p.y < WATER_LEVEL - 0.2,
             ch: s.activeTreeId !== null,
             ko: s.koUntil > Date.now(),

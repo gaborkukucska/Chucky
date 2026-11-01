@@ -11,6 +11,12 @@ Welcome to **Woodchuck Dam Builder 3000** (a.k.a. *Chucky*), a 3D game where you
   - **Mega Chomp**: chomp 3 trees within 30 seconds to chomp every tree around you.
   - **Magnet**: reach a 3x combo and nearby logs fly to you.
   - **Zoomies**: eat 3 berries to run and swim faster for 20 seconds.
+  - **Magic items**: chased-off wolves, bears and piranhas can drop a glowing magic item. Walk into it to get one of these:
+    - 🛡️ **Log Shield** (20 s): logs orbit you and bonk animals and rival players.
+    - ✨ **Triple Chuck** (25 s): every throw launches three logs.
+    - 🫧 **Bubble Breath** (30 s): endless air underwater.
+    - 🌟 **Golden Teeth** (30 s): trees drop twice the logs.
+- **River piranha**: one lurks in the river and bites when you swim near it. Two log hits chase it off for 50 points and a magic item, and another turns up a few minutes later.
 - **Swimming and diving**: Swim across the river and dive for logs and fruit that have sunk. Keep an eye on the breath bar.
 - **Chucky's fact nuggets**: Chucky explains the game in a speech bubble when you start, then shares beaver facts and myth-busters as you play. The text is in `public/chucky-facts.json`, which you can edit.
 - **Throwing logs**: On land, tap the throw button for a short toss or hold it for a longer, higher throw; release to throw the way Chucky faces. Thrown logs spin randomly. A dotted line shows the flight path while you aim, and every throw flies a little off the aim. A wolf runs off after 2 hits and a bear after 3. A thrown log can be picked up again, but only gives the wood back.
@@ -114,7 +120,8 @@ When you start your first game, Chucky explains the basics in a speech bubble (N
 2. **Collect logs**: walk over logs to pick them up. Picking logs up quickly builds your combo.
 3. **Build**: tap 🏗️, pick an unlocked blueprint and place it. The see-through preview is cyan when the spot is valid and red when it isn't (not enough wood, too close to another structure, or off the map).
 4. **Eat**: apples heal 20 and berries heal 10 (up to 200% health). Every 3rd berry gives you Zoomies.
-5. **Survive the night**: wolves and bears hurt. Stay clear, head for the water, or throw logs at them (🪵): a wolf runs off after 2 hits (+20 points) and a bear after 3 (+40).
+5. **Survive the night**: wolves and bears hurt. Stay clear, head for the water, or throw logs at them (🪵): a wolf runs off after 2 hits (+20 points) and a bear after 3 (+40). Chased-off animals sometimes leave a magic item behind (see the features above).
+6. **Mind the piranha**: there's one in the river. It chases and bites you while you swim. Two log hits chase it off: throw from the bank as it comes close, or use a Log Shield.
 
 If the game runs slowly on your phone, open ☰ → ⚙️ Settings and pick **Low** graphics. Settings is also on the start screen.
 
@@ -166,10 +173,11 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | `store.ts` | All game state and rules (Zustand): world generation, chomping, logs, combos, power-ups, building, demolition, saving and loading, leaderboard sync, camera mode and zoom. Gameplay tuning constants are at the top of the file. |
 | `components/Woodchuck.tsx` | The player: movement, collisions, swimming and diving, chomping, the placement preview, and the model. |
 | `components/Game3D.tsx` | The scene: canvas, cameras, day/night lighting, time and destruction managers, food, mobs, grass, graphics quality, environment-sound updates. |
+| `components/Magic.tsx` | The river piranha (swims, chases, bites), magic items (float, pick up, expire) and the Log Shield (hits animals; rivals' shields hurt you in joint games). |
 | `components/WorldObjects.tsx` | Trees, boulders, loose logs (debris bundles), placed structures (instanced) and the placement preview. |
 | `components/Controls.tsx` | Joystick, dive button, zoom slider, top-right buttons and keyboard/mouse input. It writes to `window.woodchuckInput`. |
 | `App.tsx` | HUD, combo display, power-up pills, notifications, build menu, placement panel, in-game menu, settings, start and game-over screens, leaderboard. |
-| `services/facts.ts` + `public/chucky-facts.json` | Chucky's speech bubble. The JSON holds the intro tips and the facts, each with an optional `when` condition (logs, trees, score, day, built, throws, chased, swim, night). Seen facts are remembered on the device. |
+| `services/facts.ts` + `public/chucky-facts.json` | Chucky's speech bubble. The JSON holds the intro tips and the facts, each with an optional `when` condition (logs, trees, score, day, built, throws, chased, swim = times in the water, night = nights seen, bitten = piranha bites). Seen facts are remembered on the device. |
 | `services/audio.ts` | Synthesized sound (no audio files) on three channels that can be muted separately: music, environment and sound effects. |
 | `services/persistence.ts` | localStorage saves (3 slots), player name, camera zoom, graphics quality, sound settings, and the leaderboard client (shared API with a fallback to each device). |
 | `server/leaderboardApi.ts` | Vite plugin: `GET` and `POST /api/leaderboard`, stored in `data/leaderboard.json`. |

@@ -58,6 +58,7 @@ export interface RemoteSample {
     p: [number, number, number];
     f: number;
     sw: boolean;
+    sh: boolean;                     // Log Shield active
     dv: boolean;
     ch: boolean;
     ko: boolean;
@@ -89,6 +90,7 @@ const logToWire = (l: LooseLogData, now: number) => ({
     value: l.value ?? 1,
     ...(l.velocity ? { velocity: l.velocity.map(round) } : {}),
     ...(l.spin ? { spin: l.spin.map(round) } : {}),
+    ...(l.fleeting ? { fleeting: true } : {}),
     ...(l.thrown ? { thrown: true, team: l.team } : {}),
     ...(l.woodOnly ? { woodOnly: true } : {}),
     age: Math.max(0, now - l.createdAt),
@@ -107,6 +109,7 @@ export const logFromWire = (w: any, now: number): LooseLogData => {
         owner: w.owner,
         ...(w.thrown ? { thrown: true, thrownBy: w.thrownBy, team: w.team } : {}),
         ...(w.woodOnly ? { woodOnly: true } : {}),
+        ...(w.fleeting ? { fleeting: true } : {}),
         ...(landed ? { settled: true } : (w.velocity ? { velocity: w.velocity as Vec3 } : {})),
         ...(!landed && Array.isArray(w.spin) ? { spin: w.spin as Vec3 } : {}),
     };
@@ -409,7 +412,7 @@ class MultiplayerClient {
             entry = { samples: [] };
             remotePlayers.set(id, entry);
         }
-        entry.samples.push({ t: now, p: st.p, f: Number(st.f) || 0, sw: !!st.sw, dv: !!st.dv, ch: !!st.ch, ko: !!st.ko });
+        entry.samples.push({ t: now, p: st.p, f: Number(st.f) || 0, sw: !!st.sw, sh: !!st.sh, dv: !!st.dv, ch: !!st.ch, ko: !!st.ko });
         if (entry.samples.length > MAX_SAMPLES) entry.samples.shift();
     }
 
@@ -418,7 +421,7 @@ class MultiplayerClient {
     // ------------------------------------------------------------------
 
     /** Called every frame by the scene: our state, moved logs, the clock (host) */
-    tick(now: number, st: { p: Vec3; f: number; sw: boolean; dv: boolean; ch: boolean; ko: boolean; s: number; w: number }) {
+    tick(now: number, st: { p: Vec3; f: number; sw: boolean; sh: boolean; dv: boolean; ch: boolean; ko: boolean; s: number; w: number }) {
         if (!this.active) return;
         if (now - this.lastState >= STATE_INTERVAL_MS) {
             this.lastState = now;

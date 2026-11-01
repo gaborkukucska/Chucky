@@ -14,6 +14,7 @@ const WATER_LEVEL = -1.5;
 const PICKUP_RADIUS_SQ = 1.4 * 1.4;
 // Thrown logs: hit things while they're still flying fast
 const THROWN_FLIGHT_MS = 2500;      // Only the first moments of a throw can hit
+const FLEETING_LIFETIME_MS = 3500;  // Triple Chuck's magic logs vanish this long after the throw
 const THROWN_HIT_SPEED = 6;         // m/s - slower than this it's just rolling
 const THROWN_HIT_RADIUS = 1.2;      // m sideways from the target's centre
 const THROWN_HIT_BELOW = 1.2;       // m below the target's centre ...
@@ -302,6 +303,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
     const report = useRef({ at: 0, x: NaN, y: 0, z: 0 });
     // Pick it up: straight away in a solo game; in a joint game ask the server (first come, first served)
     const pickUp = () => {
+        if (data.fleeting) return; // Triple Chuck's magic logs can't be picked up
         if (multiplayer.active) multiplayer.take('log', data.id);
         else collectLooseLog(data.id);
     };
@@ -410,6 +412,12 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
 
             // Drifted off the map (down the river / over the edge): it's gone
             if (Math.abs(pos.x) > MAP_SIZE / 2 - 2 || Math.abs(pos.z) > MAP_SIZE / 2 - 2 || pos.y < -40) {
+                expireLooseLog(data.id);
+                return;
+            }
+
+            // Triple Chuck's magic logs vanish a few seconds after the throw
+            if (data.fleeting && age > FLEETING_LIFETIME_MS) {
                 expireLooseLog(data.id);
                 return;
             }
@@ -643,6 +651,13 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                  <circleGeometry args={[size.radius, 8]} />
                  <meshStandardMaterial color="#A1887F" />
             </mesh>
+            {data.fleeting && (
+                // Magic glow on Triple Chuck's extra logs
+                <mesh>
+                    <cylinderGeometry args={[size.radius + 0.08, size.radius + 0.08, size.length + 0.12, 8]} />
+                    <meshBasicMaterial color="#A78BFA" transparent opacity={0.45} depthWrite={false} />
+                </mesh>
+            )}
             {value > 1 && (
                 // Twine bands mark a bundle
                 <>

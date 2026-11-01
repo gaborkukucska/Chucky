@@ -321,7 +321,8 @@ export const Woodchuck = () => {
         const isSwimming = inWater && (!touchingGround || isUnderwater);
 
         // --- Breath ---
-        if (isUnderwater) {
+        const bubbleBreath = s.magic.bubble > Date.now(); // Bubble Breath magic: endless air
+        if (isUnderwater && !bubbleBreath) {
             breath.current = Math.max(0, breath.current - delta / BREATH_SECONDS);
             if (breath.current === 0) {
                 breathLockout.current = true;

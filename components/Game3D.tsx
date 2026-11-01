@@ -11,6 +11,7 @@ import { Water } from './Water';
 import { Boulder, Tree, Log, LooseLog, PlacedStructureRenderer } from './WorldObjects';
 import { Woodchuck } from './Woodchuck';
 import { RemotePlayers, MultiplayerSync } from './RemotePlayers';
+import { Piranhas, MagicItems, LogShield } from './Magic';
 import { multiplayer } from '../services/multiplayer';
 import { FoodData, MobData, GraphicsQuality } from '../types';
 import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, throwAim } from '../globals';
@@ -433,7 +434,10 @@ const MobRenderer = React.memo(({ data }: { data: MobData }) => {
                 flashUntilRef.current = now + 250;
                 api.applyImpulse([dirX * MOB_THROW_KNOCKBACK, 25, dirZ * MOB_THROW_KNOCKBACK], [0, 0, 0]);
                 hitsLeftRef.current -= 1;
-                if (hitsLeftRef.current <= 0) useGameStore.getState().defeatMob(data.id);
+                if (hitsLeftRef.current <= 0) {
+                    const p = readBodyPosition(mesh, new THREE.Vector3());
+                    useGameStore.getState().defeatMob(data.id, [p.x, p.y, p.z]); // May drop magic here
+                }
             },
         });
         return () => { liveObjects.mobs.delete(data.id); };
@@ -881,6 +885,9 @@ const GameScene = () => {
                 <Grass key={quality} quality={quality} />
                 <RemotePlayers />
                 <ThrowAimGuide />
+                <Piranhas />
+                <MagicItems />
+                <LogShield />
                 <CameraController />
 
                 {/* Effects */}

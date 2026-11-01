@@ -43,6 +43,7 @@ interface LogEntry {
     thrownBy?: string;
     team?: Team;
     woodOnly?: boolean;
+    fleeting?: boolean;
     owner: string;
     createdAt: number;   // Server time
 }
@@ -122,6 +123,7 @@ const cleanLog = (raw: any, owner: string, now: number): LogEntry | null => {
         ...(spin ? { spin } : {}),
         ...(raw.thrown ? { thrown: true, thrownBy: owner, team: team(raw.team) } : {}),
         ...(raw.woodOnly ? { woodOnly: true } : {}),
+        ...(raw.fleeting ? { fleeting: true } : {}),
         owner,
         createdAt: now - num(raw.age, 0, LOG_LIFETIME_MS),
     };
@@ -309,6 +311,7 @@ const onConnection = (ws: WebSocket) => {
                     p,
                     f: num(msg.f, -1e4, 1e4),
                     sw: !!msg.sw,
+                    sh: !!msg.sh,
                     dv: !!msg.dv,
                     ch: !!msg.ch,
                     ko: !!msg.ko,

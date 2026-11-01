@@ -12,8 +12,9 @@ export interface FactCondition {
     built?: number;     // Structures this player built
     throws?: number;    // Logs thrown
     chased?: number;    // Wolves/bears chased off
-    swim?: number;      // 1 after the first swim
-    night?: number;     // 1 after the first night
+    swim?: number;      // Times you've gone into the water
+    night?: number;     // Nights seen
+    bitten?: number;    // Piranha bites
 }
 
 export interface Fact {
@@ -29,7 +30,7 @@ const ENABLED_KEY = 'chucky.facts.enabled';
 const MIN_GAP_MS = 40 * 1000;          // At least this long between two facts during play
 const UNTIMED_EVERY_MS = 150 * 1000;   // Facts without "when" come up one by one this often
 const START_DELAY_MS = 4000;           // Let a new game settle before the first bubble
-const CONDITION_KEYS: (keyof FactCondition)[] = ['logs', 'trees', 'score', 'day', 'built', 'throws', 'chased', 'swim', 'night'];
+const CONDITION_KEYS: (keyof FactCondition)[] = ['logs', 'trees', 'score', 'day', 'built', 'throws', 'chased', 'swim', 'night', 'bitten'];
 
 // Used until the JSON has loaded (or if it can't be loaded)
 const FALLBACK_INTRO: Fact[] = [
@@ -87,8 +88,10 @@ class FactsService {
     private runStart = 0;
     private lastShown = 0;
     private lastUntimed = 0;
-    private swam = false;
-    private sawNight = false;
+    private swims = 0;        // Times Chucky went into the water this game
+    private nights = 0;       // Nights seen this game
+    private wasInWater = false;
+    private wasNight = false;
 
     constructor() {
         try {
@@ -154,11 +157,17 @@ class FactsService {
             this.runStart = now;
             this.lastShown = now;
             this.lastUntimed = now;
-            this.swam = false;
-            this.sawNight = false;
+            this.wasInWater = s.isInWater;
+            this.wasNight = isNightTime(s.timeOfDay);
+            this.swims = this.wasInWater ? 1 : 0;
+            this.nights = this.wasNight ? 1 : 0;
         }
-        if (s.isInWater) this.swam = true;
-        if (isNightTime(s.timeOfDay)) this.sawNight = true;
+        // Count each time Chucky goes into the water, and each new night
+        if (s.isInWater && !this.wasInWater) this.swims++;
+        this.wasInWater = s.isInWater;
+        const night = isNightTime(s.timeOfDay);
+        if (night && !this.wasNight) this.nights++;
+        this.wasNight = night;
 
         if (!this.enabled || now - this.runStart < START_DELAY_MS) return;
         // Wait for a quiet moment: no bubble, popup or menu showing, not knocked out
@@ -180,8 +189,9 @@ class FactsService {
             built: s.placedStructures.filter(p => !p.ownerId || p.ownerId === myId).length,
             throws: s.throwsMade,
             chased: s.mobsChased,
-            swim: this.swam ? 1 : 0,
-            night: this.sawNight ? 1 : 0,
+            swim: this.swims,
+            night: this.nights,
+            bitten: s.piranhaBites,
         };
 
         let next = this.facts.find(f => f.when && !this.seen.has(f.id)

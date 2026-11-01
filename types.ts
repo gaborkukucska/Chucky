@@ -1,6 +1,20 @@
 export type GamePhase = 'START' | 'PLAYING' | 'GAMEOVER';
 export type CameraMode = 'FOLLOW' | 'TOP_DOWN' | 'BEHIND' | 'CINEMATIC';
 export type GraphicsQuality = 'LOW' | 'MEDIUM' | 'HIGH';
+export type MagicType = 'shield' | 'triple' | 'bubble' | 'double';
+
+// A magic item dropped by a chased-off wolf, bear or piranha
+export interface MagicItemData {
+  id: string;
+  type: MagicType;
+  position: [number, number, number];
+  createdAt: number;
+}
+
+export interface PiranhaData {
+  id: string;
+  position: [number, number, number]; // Where it starts; it then swims on its own
+}
 
 export interface Position {
   x: number;
@@ -34,6 +48,7 @@ export interface LooseLogData {
   value?: number;    // Logs this pickup is worth (demolition debris is bundled). Default 1
   velocity?: [number, number, number]; // Launch velocity (thrown) instead of the spawn "pop"
   spin?: [number, number, number];     // Thrown: random spin while it flies (rad/s)
+  fleeting?: boolean; // Triple Chuck's magic extra logs: can't be picked up, vanish after landing
   thrown?: boolean;  // Thrown by a Chucky: hurts what it hits while flying; pick-up = wood only, no score
   // Joint games
   owner?: string;    // Player whose game simulates it and sends position corrections
