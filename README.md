@@ -30,9 +30,9 @@ Welcome to **Chucky the Woodchuck**, a 3D game where you play as Chucky, an indu
   A zoom slider on the right edge of the screen moves the camera in and out.
 - **Save and load**: Three save slots on each device, from the in-game menu.
 - **Settings**: Choose Low, Medium or High graphics quality, and switch music, environment sounds (river, wind, birds, crickets) and sound effects on or off separately.
-- **Joint games**: Play together on the same Wi-Fi. One player creates a game and shares a room code (like BARK-27). Everyone races for the same trees, logs and fruit in one shared world. Pick a team colour: your logs hurt rivals but team mates catch them.
+- **Joint games**: Play together on the same Wi-Fi. One player creates a game (with a code they choose, or a random one like BARK-27) and friends join by scanning the invite QR code. Everyone races for the same trees, logs and fruit in one shared world. Pick a team colour: each team starts in its own corner, your logs hurt rivals, and team mates catch them.
 - **Live, shared leaderboard**: Your current run updates the leaderboard as you play. Every device that plays from the same server (your laptop and phones on the same Wi-Fi) shares one board.
-- **Mobile first**: Touch joystick, a dive button for the left thumb and a compact HUD. Keyboard and mouse also work.
+- **Mobile first**: Touch joystick, a dive / throw button for the left thumb and a compact HUD. Keyboard and mouse also work.
 
 ## 🚀 Installation & Setup
 
@@ -50,7 +50,7 @@ Welcome to **Chucky the Woodchuck**, a 3D game where you play as Chucky, an indu
    cd Chucky
    ```
 
-2. **Install dependencies**:
+2. **Install dependencies** (again after an update that changes `package.json`):
    ```bash
    npm install
    ```
@@ -113,6 +113,9 @@ If you run the server directly on your phone with Termux:
    CHOKIDAR_USEPOLLING=true npm start
    ```
 
+4. If Vite prints more than one **Network** address (for example `10.x.x.x` for the Wi-Fi and `100.x.x.x` for a VPN such as Tailscale), friends on the Wi-Fi need the Wi-Fi one. The invite QR code uses it by default, and you can switch addresses under the QR code.
+5. After pulling an update, run `npm install` if `package.json` changed, then `npm start` again.
+
 **No sound on a phone?** The sound starts with your first tap in the game. On an iPhone, the ring/silent switch also mutes web games: switch it to ring.
 
 ## 🎮 How to Play
@@ -138,12 +141,14 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 |---|---|
 | **Joystick** (bottom middle) | **3rd person view:** up/down walks forward/back, left/right turns Chucky (the camera stays behind him). **Other views:** push where you want to go on the screen. |
 | **🤿 Dive** (bottom left, in water) | Hold to dive, release to float back up. Watch the breath bar. |
-| **🪵 Throw** (bottom left, on land) | **Tap** for a short toss (about 4 m, good for a wolf right in front of you), or **hold** to throw faster and higher: 1.2 seconds is a lob of about 55 m. While you hold, a dotted line and a ring show where the log will land. **Release** to throw. Costs 1 log; you can throw about every 0.6 seconds. Each throw flies a little off the aim and spins randomly. |
+| **🪵 Throw** (bottom left, on land, where 🤿 is in the water) | **Tap** for a short toss (about 4 m, good for a wolf right in front of you), or **hold** to throw faster and higher: 1.2 seconds is a lob of about 55 m. While you hold, a dotted line and a ring show where the log will land. **Release** to throw. Costs 1 log; you can throw about every 0.6 seconds. Each throw flies a little off the aim and spins randomly. |
 | **Zoom slider** (right edge) | Slide up to move the camera closer, down to move it further away. Double-tap the slider to reset. |
 | **🏗️ / ✅ / 💥** (top right) | Opens the build menu. Becomes ✅ to **place** while building. Next to a structure it becomes 💥: **hold** it to demolish (you get 80% of the logs back). |
 | **✖️** | Stop building. |
+| **📱** (joint games) | Shows the invite QR code and link again. |
 | **📷** | Switch the camera: 3rd person → Overview → Top-down → Cinematic. |
-| **☰** | Menu: Resume, Save, Load, Leaderboard, Settings, New game. Opening it pauses the game. In a joint game: Resume, Players, Leaderboard, Settings, Leave game (it doesn't pause). |
+| **☰** | Menu: Resume, Save, Load, Leaderboard, 🦫 Chucky's tips, Settings, New game. Opening it pauses the game. In a joint game: Resume, Players & invite, Leaderboard, Settings, Leave game (it doesn't pause). |
+| **🛠️** (left edge, `npm run dev` only) | The dev menu: switch power-ups and magic on or off, spawn things to test. |
 | **Building controls** (left edge, while building) | ↻ / ↺ rotate the structure, **✅ PLACE** places it (green = OK, grey = not possible here), ✖ stops building. The label above shows the blueprint, its cost and why a spot isn't allowed. |
 
 ### Keyboard & mouse
@@ -174,8 +179,10 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | Path | Purpose |
 |---|---|
 | `blueprints.ts` | The 10 blueprints: dams, lodges and food caches built from logs, sticks (scaled-down logs) and mud, sized to exactly their cost. |
-| `store.ts` | All game state and rules (Zustand): world generation, chomping, logs, combos, power-ups, building, demolition, saving and loading, leaderboard sync, camera mode and zoom. Gameplay tuning constants are at the top of the file. |
-| `components/Woodchuck.tsx` | The player: movement, collisions, swimming and diving, chomping, the placement preview, and the model. |
+| `store.ts` | All game state and rules (Zustand): world generation (seeded terrain, trees, boulders), spawn points, chomping, logs, combos, power-ups and magic, the piranha, building, demolition, saving and loading, leaderboard sync, camera mode and zoom, the dev-menu actions. Gameplay tuning constants are at the top of the file. |
+| `types.ts` | Shared types: trees, logs, structures and blueprints (logs, sticks, mud), magic items, piranhas. |
+| `components/Woodchuck.tsx` | The player: spawning (river bank, or the team's corner in joint games), movement, collisions, swimming and diving, chomping, the placement preview, and the model. |
+| `components/Terrain.tsx` + `components/Water.tsx` | The ground (mesh + physics heightfield, rebuilt for each world from the seeded terrain in `store.ts`) and the water surface. |
 | `components/Game3D.tsx` | The scene: canvas, cameras, day/night lighting, time and destruction managers, food, mobs, grass, graphics quality, environment-sound updates. |
 | `components/DevPanel.tsx` | The 🛠️ dev menu (`npm run dev` only): power-up and magic switches and test helpers. |
 | `components/InviteQR.tsx` | The invite QR code for joint games (link with the Wi-Fi address and room code), and reading `?join=` when an invite is opened. |
@@ -199,8 +206,9 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 - **Kinematic player.** Chucky is a kinematic physics body that the code moves itself. Collisions with trees, boulders and structure logs are resolved by hand in `Woodchuck.tsx`. Physics contacts between a kinematic and a static body never fire, so gameplay never relies on them: chomping and pick-ups use distance checks.
 - **Frame-rate independent.** Smoothing uses `1 - exp(-rate * dt)` and long frames are clamped (`MAX_FRAME_DELTA`). A slow phone plays the same as a fast laptop.
 - **No per-frame React churn.** Per-frame data lives in refs and `globals.ts`. Store actions return `state` unchanged when nothing changed, so subscribers aren't woken. Components use selectors.
-- **Small saves.** Worlds come from a seed (mulberry32), so a save stores the seed plus what changed (tree health, structures, logs, fruit, player, timers).
-- **Cheap big structures.** Each placed structure is one instanced draw call. Physics uses one box per log for small structures and one box per layer for big ones. Demolition drops at most 12 "bundles", each worth several logs.
+- **Small saves, new maps.** Worlds come from a seed (mulberry32): the terrain (river path and width, hills), trees, boulders and the blueprints' wobble. A save stores the seed plus what changed (tree health, structures, logs, fruit, player, timers) and its terrain version, so saves from before seeded maps keep the original map.
+- **Cheap big structures.** Each placed structure is one instanced draw call for its logs and one for its mud. Physics uses one box per log for small structures and one box per 4 m × 1 m × 4 m patch of logs for big ones. Demolition drops at most 12 "bundles", each worth several logs.
+- **Sound needs a tap.** Browsers only start audio from a gesture. Every tap, click or key press asks the audio to resume until it runs (a phone's first touch alone isn't enough, and iOS can report "interrupted").
 - **Pausing is real.** Menus pause the game, and resuming shifts every combo and power-up deadline by the paused time.
 
 ### Cameras (`CameraController` in `Game3D.tsx`)
@@ -245,12 +253,14 @@ Open `public/chucky-facts.json`, change or add entries, and reload the game; the
 
 ### Useful tuning knobs
 
-- `store.ts` (top): tree and boulder counts, food drop chance, power-up durations, combo windows, build points, debris limits, leaderboard sync interval.
+- `store.ts` (top): tree and boulder counts, food drop chance, power-up durations, combo windows, build points, debris limits, leaderboard sync interval, magic items and the piranha (`MAGIC_INFO`, drop chances, `PIRANHA_*`).
+- `store.ts` (terrain and spawns): `seededTerrain` (ranges for the river's bends and width and the hills), `TEAM_CORNERS`, `SPAWN_CORNER` and `SPAWN_SPACING` (joint-game spawn points).
 - `blueprints.ts`: unlock scores, and each blueprint's name, cost, icon, description and shape (dam length and height, lodge size, entrances).
 - `Woodchuck.tsx` (top): walk and swim speed, acceleration, turn and steer rates, diving and breath, chomp damage and reach, placement spacing.
 - `Game3D.tsx`: `QUALITY_SETTINGS` and `GRASS_QUALITY` (what each graphics setting does), `GRASS_TILE`, and the camera constants (`CHASE`, `OVERVIEW`, `TOP_DOWN_VIEW`, `CINEMATIC_VIEW`).
 - `services/audio.ts` (top): river, wind and underwater sound levels.
-- `store.ts` and `server/multiplayerServer.ts`: knock-out time, throw damage and knock-back, players per room, how long empty rooms are kept.
+- `store.ts` and `server/multiplayerServer.ts`: knock-out time, throw damage and knock-back, players per room, how long empty rooms are kept, the words used for random game codes.
+- `components/Magic.tsx` (top): piranha speed, chase range, bites and depth; magic item pick-up radius; Log Shield size, spin and damage.
 
 ### Dev menu
 

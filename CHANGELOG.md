@@ -2,9 +2,32 @@
 
 All notable changes to Chucky the Woodchuck. Newest first.
 
-## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–19)
+## 2026-10-31 – 2026-11-02: Regression fixes and new features (rounds 1–20)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+**At a glance:**
+- **Fixes:** speed and chomping (1), saves, diving and the compact UI (2), building placement and the preview (3, 7, 8), big-structure performance (4), sound on phones (17), and the QR library no longer needing an install (19).
+- **Look and feel:** cameras and the zoom slider (5), grass, graphics quality and sound settings (6), and a beaver model with fact nuggets (12, 14).
+- **Gameplay:** throwing logs (9, 11), magic items, the Log Shield and the river piranha (13, 15), beaver dams and lodges (16), and a new map every game (17).
+- **Together:** the shared leaderboard (3, 4), joint games on the same Wi-Fi (10), team-corner spawns (17), and QR invites with your own game code (18, 19).
+- **For development:** the 🛠️ dev menu (15) and this documentation (5, 20).
+
+### Round 20: Wrap-up - documentation
+
+README:
+- **Brought up to date:**
+  - the joint-games feature line (QR invites, your own code, team corners);
+  - the touch controls (📱 invite button, where 🪵 sits, both menus including 🦫 Chucky's tips and Players & invite, the 🛠️ dev button);
+  - the design notes that changed (seeded terrain and the save terrain version, physics patches and mud for big structures, the sound unlock).
+- **New entries:**
+  - the project layout now lists `types.ts`, `components/Terrain.tsx` and `components/Water.tsx`, and says what `store.ts` and `Woodchuck.tsx` do now;
+  - tuning knobs for the terrain, spawn points, magic, the piranha and the Log Shield;
+  - Termux tips (which Network address friends need, `npm install` after updates).
+
+CHANGELOG: the series now covers 31 Oct – 2 Nov and starts with the summary above. No code changes.
+
+Files: `README.md`, `CHANGELOG.md`.
 
 ### Round 19: QR invite fixes, your own game code
 
