@@ -2,9 +2,20 @@
 
 All notable changes to Chucky the Woodchuck. Newest first.
 
-## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–17)
+## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–18)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 18: Invite friends with a QR code
+
+- **The QR code:** in a joint game, ☰ → **👥 Players & invite** shows a QR code with a link to the game, made of the computer's Wi-Fi address, its port and the room code, e.g. `http://192.168.1.5:3000/?join=BARK-27`.
+- **Joining:** friends scan it with their phone camera and the game opens on 👥 Play together with the code filled in and a big **Join BARK-27** button. They check their name, pick a team and tap it. No typing the address or the code.
+- **Other ways to share:** a **🔗 Share link** button (the phone's share sheet, or copy) and the link as text. If the computer is on more than one network, you can pick which address the QR code uses.
+- **How it finds the address:** the server reports its Wi-Fi address(es) and port at `/api/lan`, because a page opened as `localhost` can't know them. If the page was opened through a network address, it uses that one.
+- **After joining:** once an invite is used, `?join=` is removed from the address bar, so a reload doesn't reopen it.
+- New dependency: `qrcode-generator` (MIT, no dependencies of its own). Run `npm install` after updating.
+
+Files: `components/InviteQR.tsx` (new), plus `server/multiplayerServer.ts`, `App.tsx`, `services/multiplayer.ts`, `package.json`, `README.md`, `CHANGELOG.md`.
 
 ### Round 17: Sound on phones, a new map every game, team corners
 

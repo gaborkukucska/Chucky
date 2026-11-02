@@ -276,7 +276,7 @@ class MultiplayerClient {
                     };
                 });
                 try { window.localStorage.setItem('chucky.lastCode', String(msg.code)); } catch { /* ignore */ }
-                this.addFeed(`Joined ${msg.code} - share the code to play together!`);
+                this.addFeed(`Joined ${msg.code} - ☰ → Players & invite shows a QR code for friends`);
                 break;
             }
             case 'error':

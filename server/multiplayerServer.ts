@@ -12,13 +12,16 @@
 // demolishing, a knock-out drop) is its "owner" and sends position corrections.
 //
 //   ws://<host>/ws/chucky   JSON messages { t: type, ... } - see the handlers below.
+//   GET /api/lan            This computer's Wi-Fi address(es) and port, for the invite QR code.
 
-import type { IncomingMessage } from 'http';
+import { networkInterfaces } from 'os';
+import type { IncomingMessage, ServerResponse } from 'http';
 import type { Duplex } from 'stream';
 import type { Plugin } from 'vite';
 import { WebSocketServer, WebSocket } from 'ws';
 
 const WS_PATH = '/ws/chucky';
+const LAN_PATH = '/api/lan';
 const MAX_PLAYERS = 8;
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_LOGS_PER_MESSAGE = 32;
@@ -454,12 +457,37 @@ const attach = (httpServer: { on: (event: 'upgrade', cb: (req: IncomingMessage, 
     });
 };
 
+// Invite QR code: the addresses other devices on the network can open this game at.
+// Home/office networks first (192.168.x.x, 10.x.x.x, 172.16-31.x.x).
+const lanAddresses = () => {
+    const found: string[] = [];
+    for (const list of Object.values(networkInterfaces())) {
+        for (const a of list || []) {
+            const v4 = a.family === 'IPv4' || (a.family as unknown) === 4; // Node 18.0-18.3 used a number
+            if (v4 && !a.internal && !found.includes(a.address)) found.push(a.address);
+        }
+    }
+    const rank = (ip: string) =>
+        ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? 2 : ip.startsWith('169.254.') ? 4 : 3;
+    return found.sort((a, b) => rank(a) - rank(b));
+};
+
+const lanHandler = (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+    if ((req.url || '').split('?')[0] !== LAN_PATH) return next();
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(JSON.stringify({ addresses: lanAddresses(), port: req.socket.localPort || 0 }));
+};
+
 export const multiplayerServer = (): Plugin => ({
     name: 'chucky-multiplayer',
     configureServer(server) {
         attach(server.httpServer as any);
+        server.middlewares.use(lanHandler);
     },
     configurePreviewServer(server) {
         attach(server.httpServer as any);
+        server.middlewares.use(lanHandler);
     },
 });

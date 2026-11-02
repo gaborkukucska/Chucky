@@ -10,6 +10,7 @@ import { persistence, SaveSlotInfo, LeaderboardEntry, SAVE_SLOTS } from './servi
 import type { AudioChannel } from './services/audio';
 import type { GraphicsQuality } from './types';
 import { multiplayer, TEAMS, TEAM_INFO, Team } from './services/multiplayer';
+import { InviteQR, readJoinCode, clearJoinCode } from './components/InviteQR';
 import { facts } from './services/facts';
 
 // =====================================================================
@@ -614,7 +615,8 @@ const TogetherPanel = ({ onBack }: { onBack: () => void }) => {
         const saved = readSetting(TEAM_KEY) as Team;
         return TEAMS.includes(saved) ? saved : 'solo';
     });
-    const [code, setCode] = useState(() => readSetting(LAST_CODE_KEY));
+    const [invite] = useState(() => readJoinCode()); // Opened from an invite QR code / link
+    const [code, setCode] = useState(() => invite || readSetting(LAST_CODE_KEY));
     const connecting = mp.status === 'connecting';
     const name = playerName || 'Chucky';
 
@@ -626,12 +628,17 @@ const TogetherPanel = ({ onBack }: { onBack: () => void }) => {
         e?.preventDefault();
         if (!code.trim() || connecting) return;
         writeSetting(LAST_CODE_KEY, code.trim());
+        clearJoinCode(); // Used: a reload shouldn't reopen it
         multiplayer.join(code.trim(), name, team);
     };
 
     return (
-        <Panel title="👥 Play together" onBack={() => { multiplayer.clearError(); onBack(); }}>
-            <p className="text-[11px] text-white/60 mb-3">Everyone on the same Wi-Fi opens this game from the same computer. One player creates a game and shares the code.</p>
+        <Panel title="👥 Play together" onBack={() => { multiplayer.clearError(); clearJoinCode(); onBack(); }}>
+            {invite ? (
+                <p className="text-[11px] text-sky-100 bg-sky-900/40 border border-sky-400/30 rounded-xl px-3 py-2 mb-3">📱 You've been invited to <b className="text-white">{invite}</b>! Check your name, pick a team, then tap <b className="text-white">Join</b>.</p>
+            ) : (
+                <p className="text-[11px] text-white/60 mb-3">Everyone on the same Wi-Fi opens this game from the same computer. One player creates a game and shares the code - or the QR code in ☰ → Players & invite.</p>
+            )}
             <div className="text-[10px] uppercase tracking-wider text-white/50 font-bold mb-1.5">Your name</div>
             <NameEditor compact />
             <div className="text-[10px] uppercase tracking-wider text-white/50 font-bold mt-3 mb-1.5">Team</div>
@@ -640,7 +647,12 @@ const TogetherPanel = ({ onBack }: { onBack: () => void }) => {
                 {team === 'solo' ? 'Solo: everyone is your rival.' : 'Same colour = team mates: your logs don\'t hurt them - they catch them.'}
             </p>
             <div className="mt-4 space-y-2">
-                <MenuButton variant="primary" disabled={connecting} onClick={() => multiplayer.create(name, team)}>
+                {invite && (
+                    <MenuButton variant="primary" disabled={connecting || !code.trim()} onClick={() => join()}>
+                        {connecting ? 'Connecting…' : `👥 Join ${code || invite}`}
+                    </MenuButton>
+                )}
+                <MenuButton variant={invite ? undefined : 'primary'} disabled={connecting} onClick={() => multiplayer.create(name, team)}>
                     {connecting ? 'Connecting…' : '🌲 Create a game'}
                 </MenuButton>
                 <form onSubmit={join} className="flex gap-2">
@@ -923,7 +935,7 @@ const GameMenu = () => {
                     <div className="space-y-2">
                         <MenuButton variant="primary" onClick={closeGameMenu}>▶ Resume</MenuButton>
                         {inJointGame ? (
-                            <MenuButton onClick={() => setView('players')}>👥 Players</MenuButton>
+                            <MenuButton onClick={() => setView('players')}>👥 Players & invite</MenuButton>
                         ) : (
                             <>
                                 <MenuButton onClick={() => setView('save')}>💾 Save Game</MenuButton>
@@ -966,8 +978,9 @@ const GameMenu = () => {
             )}
             {view === 'players' && (
                 <Panel title={`Players · ${mpCode}`} onBack={() => setView('main')}>
+                    <InviteQR code={mpCode} />
                     <PlayersList />
-                    <p className="text-[10px] text-white/50 mt-2">Share the code <b className="text-white">{mpCode}</b> - others join from the start screen with 👥 Play together.</p>
+                    <p className="text-[10px] text-white/50 mt-2">Or share the code <b className="text-white">{mpCode}</b> - others join from the start screen with 👥 Play together.</p>
                 </Panel>
             )}
             {view === 'confirmLeave' && (
@@ -1007,7 +1020,8 @@ const BuildMenuOverlay = () => {
 // =====================================================================
 const StartScreen = () => {
     const startGame = useGameStore(state => state.startGame);
-    const [view, setView] = useState<'main' | 'load' | 'leaderboard' | 'settings' | 'together'>('main');
+    // Opened from an invite QR code / link: straight to joining
+    const [view, setView] = useState<'main' | 'load' | 'leaderboard' | 'settings' | 'together'>(() => (readJoinCode() ? 'together' : 'main'));
     const hasSaves = persistence.listSlots().some(s => s !== null);
 
     if (view === 'load') {

@@ -84,7 +84,7 @@ If you host only the built `dist/` folder somewhere else, the API isn't there. T
 
 1. Start the game on one computer with `npm start` (or `npm run preview`). Everyone opens the **Network** URL it prints, on any phone or laptop on the same Wi-Fi.
 2. One player taps **👥 Play together**, picks a team colour and taps **Create a game**. The room code (e.g. **BARK-27**) shows in the HUD and in ☰ → Players.
-3. The others tap **👥 Play together**, pick a colour, type the code and tap **Join**. Up to 8 players per game; late joiners get the world as it is now.
+3. **Invite with a QR code:** in the game, open ☰ → **👥 Players & invite** and let friends scan the QR code with their phone camera. It opens the game with the code filled in: they pick a colour and tap **Join**. (Or they open the Network URL, tap **👥 Play together**, pick a colour, type the code and tap **Join**.) Up to 8 players per game; late joiners get the world as it is now.
 
 **What's shared, and the rules:**
 - **Shared:** everyone plays in the same world: the same trees, tree damage, felled trees, loose logs and fruit, structures, and day and night.
@@ -97,7 +97,7 @@ If you host only the built `dist/` folder somewhere else, the API isn't there. T
 - **No pausing or saving:** the game never pauses, because the world goes on for everyone, and joint games can't be saved.
 - **Wolves and bears:** each player has their own.
 
-The game server runs inside the same Vite server (WebSocket at `/ws/chucky`, via the `ws` package that `npm install` adds). If the connection drops, the game says so and you can rejoin with the same code.
+The game server runs inside the same Vite server (WebSocket at `/ws/chucky`, via the `ws` package that `npm install` adds). The QR code links to `http://<this computer's Wi-Fi address>:<port>/?join=<code>`; the server reports its addresses at `/api/lan`, and if the computer is on more than one network you can pick which address the QR code uses. If the connection drops, the game says so and you can rejoin with the same code.
 
 ## 📱 Mobile / Termux Troubleshooting
 
@@ -178,6 +178,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | `components/Woodchuck.tsx` | The player: movement, collisions, swimming and diving, chomping, the placement preview, and the model. |
 | `components/Game3D.tsx` | The scene: canvas, cameras, day/night lighting, time and destruction managers, food, mobs, grass, graphics quality, environment-sound updates. |
 | `components/DevPanel.tsx` | The 🛠️ dev menu (`npm run dev` only): power-up and magic switches and test helpers. |
+| `components/InviteQR.tsx` | The invite QR code for joint games (link with the Wi-Fi address and room code), and reading `?join=` when an invite is opened. |
 | `components/Magic.tsx` | The river piranha (swims, chases, bites), magic items (float, pick up, expire) and the Log Shield (hits animals; rivals' shields hurt you in joint games). |
 | `components/WorldObjects.tsx` | Trees, boulders, loose logs (debris bundles), placed structures (instanced) and the placement preview. |
 | `components/Controls.tsx` | Joystick, dive button, zoom slider, top-right buttons and keyboard/mouse input. It writes to `window.woodchuckInput`. |
