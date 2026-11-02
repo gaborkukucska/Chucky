@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useGameStore, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX, THROW_CHARGE_MS, throwPowerForCharge } from '../store';
 import { throwAim } from '../globals';
 import { facts } from '../services/facts';
+import { multiplayer } from '../services/multiplayer';
 
 // Hold to aim (higher the longer you hold), release to throw - touch button and keyboard
 const startThrowAim = () => {
@@ -285,6 +286,7 @@ export const Controls = () => {
     const stopDestroying = useGameStore(state => state.stopDestroying);
     const cycleCameraMode = useGameStore(state => state.cycleCameraMode);
     const openGameMenu = useGameStore(state => state.openGameMenu);
+    const inJointGame = useGameStore(state => state.mp.status === 'playing');
     const cameraMode = useGameStore(state => state.cameraMode);
 
     // Show the camera mode's name briefly whenever it changes
@@ -350,6 +352,13 @@ export const Controls = () => {
                 {isPlacementMode && !destroyTargetId && (
                     <button className={`${smallBtn} bg-black/60 backdrop-blur-md`} onClick={cancelPlacement} aria-label="Cancel placement">
                         <span className="text-sm">✖️</span>
+                    </button>
+                )}
+
+                {inJointGame && (
+                    // Joint games: show the invite QR code
+                    <button className={`${smallBtn} bg-black/60 backdrop-blur-md`} onClick={() => multiplayer.showInvite(true)} aria-label="Invite friends">
+                        <span className="text-base">📱</span>
                     </button>
                 )}
 

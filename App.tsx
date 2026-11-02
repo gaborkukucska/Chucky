@@ -589,6 +589,8 @@ const NameEditor = ({ compact = false }: { compact?: boolean }) => {
 // =====================================================================
 const TEAM_KEY = 'chucky.team';
 const LAST_CODE_KEY = 'chucky.lastCode';
+// A game code the way the server reads it (bark27 -> BARK-27), for the Create button
+const tidyCode = (raw: string) => raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12).replace(/^([A-Z]+)(\d+)$/, '$1-$2');
 const readSetting = (key: string) => { try { return window.localStorage.getItem(key) || ''; } catch { return ''; } };
 const writeSetting = (key: string, value: string) => { try { window.localStorage.setItem(key, value); } catch { /* ignore */ } };
 
@@ -652,8 +654,8 @@ const TogetherPanel = ({ onBack }: { onBack: () => void }) => {
                         {connecting ? 'Connecting…' : `👥 Join ${code || invite}`}
                     </MenuButton>
                 )}
-                <MenuButton variant={invite ? undefined : 'primary'} disabled={connecting} onClick={() => multiplayer.create(name, team)}>
-                    {connecting ? 'Connecting…' : '🌲 Create a game'}
+                <MenuButton variant={invite ? undefined : 'primary'} disabled={connecting} onClick={() => { writeSetting(LAST_CODE_KEY, code.trim()); clearJoinCode(); multiplayer.create(name, team, code.trim()); }}>
+                    {connecting ? 'Connecting…' : tidyCode(code) ? `🌲 Create game ${tidyCode(code)}` : '🌲 Create a game'}
                 </MenuButton>
                 <form onSubmit={join} className="flex gap-2">
                     <input
@@ -669,6 +671,7 @@ const TogetherPanel = ({ onBack }: { onBack: () => void }) => {
                     </button>
                 </form>
             </div>
+            <p className="text-[10px] text-white/50 mt-1.5">Create uses the code in the box (empty = a random code). Join joins the game with that code.</p>
             {mp.error && <p className="mt-3 text-xs text-red-200 bg-red-900/40 border border-red-400/30 rounded-xl px-3 py-2">{mp.error}</p>}
         </Panel>
     );
@@ -733,6 +736,25 @@ const KnockoutOverlay = () => {
                 <div className="text-2xl">😵</div>
                 <div className="font-black">Knocked out!</div>
                 <div className="text-xs text-white/70">You dropped half your logs · back in {left}s</div>
+            </div>
+        </div>
+    );
+};
+
+// Joint games: the invite QR code. Pops up after creating a game; 📱 (top right) brings it back.
+// The game keeps going underneath.
+const InviteOverlay = () => {
+    const open = useGameStore(state => state.mp.invite && state.mp.status === 'playing');
+    const code = useGameStore(state => state.mp.code);
+    if (!open) return null;
+    return (
+        <div className="absolute inset-0 z-[65] bg-black/60 flex items-center justify-center p-4 overflow-y-auto" onClick={() => multiplayer.showInvite(false)}>
+            <div className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+                <Panel title={`📱 Invite friends · ${code}`}>
+                    <InviteQR code={code} />
+                    <p className="text-[10px] text-white/50 mb-3">The game keeps going while this is open. Bring it back with 📱 at the top, or ☰ → Players & invite.</p>
+                    <MenuButton variant="primary" onClick={() => multiplayer.showInvite(false)}>▶ Play</MenuButton>
+                </Panel>
             </div>
         </div>
     );
@@ -1184,6 +1206,7 @@ export default function App() {
                     <ChuckyBubble />
                     <KnockoutOverlay />
                     <ConnectionLostOverlay />
+                    <InviteOverlay />
                     {/* Dev menu: `npm run dev` only (Vite mode "devtools"); compiled out of other builds */}
                     {import.meta.env.DEV && import.meta.env.MODE === 'devtools' && <DevPanel />}
                 </>

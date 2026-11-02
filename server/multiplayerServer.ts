@@ -177,6 +177,10 @@ const newCode = () => {
     return `WOOD-${Date.now() % 100000}`;
 };
 
+// A game code as typed: letters and digits only, WORD+NUMBER written as WORD-NUMBER (bark27 -> BARK-27)
+const cleanCode = (raw: unknown) =>
+    String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12).replace(/^([A-Z]+)(\d+)$/, '$1-$2');
+
 const currentClock = (room: Room, now: number) => {
     const { tod, day, at, dayDuration } = room.clock;
     const total = tod + (now - at) / 1000 / dayDuration;
@@ -278,7 +282,16 @@ const onConnection = (ws: WebSocket) => {
         // --- Before joining ---
         if (!room || !player) {
             if (msg.t === 'create') {
-                const code = newCode();
+                // The code the player typed (3+ letters/digits), else a random one. A code with
+                // players in it can't be taken; an empty room kept for rejoining is replaced.
+                const wanted = cleanCode(msg.code);
+                const chosen = wanted.replace('-', '').length >= 3 ? wanted : '';
+                const existing = chosen ? rooms.get(chosen) : undefined;
+                if (existing && existing.players.size > 0) {
+                    send(ws, { t: 'error', message: `A game called ${chosen} is already running - tap Join to join it, or type another code.` });
+                    return;
+                }
+                const code = chosen || newCode();
                 const created: Room = {
                     code,
                     seed: Math.floor(num(msg.seed, 0, 2147483646, Math.random() * 2147483646)),
@@ -294,7 +307,7 @@ const onConnection = (ws: WebSocket) => {
                 rooms.set(code, created);
                 join(created, msg.name, msg.team);
             } else if (msg.t === 'join') {
-                const code = String(msg.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^([A-Z]+)(\d+)$/, '$1-$2');
+                const code = cleanCode(msg.code);
                 const target = rooms.get(code);
                 if (!target) send(ws, { t: 'error', message: `No game with code ${code || '?'} on this server.` });
                 else join(target, msg.name, msg.team);

@@ -83,8 +83,8 @@ If you host only the built `dist/` folder somewhere else, the API isn't there. T
 ### Joint games (same Wi-Fi)
 
 1. Start the game on one computer with `npm start` (or `npm run preview`). Everyone opens the **Network** URL it prints, on any phone or laptop on the same Wi-Fi.
-2. One player taps **👥 Play together**, picks a team colour and taps **Create a game**. The room code (e.g. **BARK-27**) shows in the HUD and in ☰ → Players.
-3. **Invite with a QR code:** in the game, open ☰ → **👥 Players & invite** and let friends scan the QR code with their phone camera. It opens the game with the code filled in: they pick a colour and tap **Join**. (Or they open the Network URL, tap **👥 Play together**, pick a colour, type the code and tap **Join**.) Up to 8 players per game; late joiners get the world as it is now.
+2. One player taps **👥 Play together**, picks a team colour and taps **Create a game**. To choose the code yourself, type it in the code box first (e.g. **TOMS-1**); leave it empty for a random one (e.g. **BARK-27**). The code shows in the HUD, and the invite QR code pops up straight away.
+3. **Invite with a QR code:** let friends scan the QR code with their phone camera. It pops up after you create a game; bring it back with **📱** (top right) or ☰ → **👥 Players & invite**. It opens the game with the code filled in: they pick a colour and tap **Join**. (Or they open the Network URL, tap **👥 Play together**, pick a colour, type the code and tap **Join**.) Up to 8 players per game; late joiners get the world as it is now.
 
 **What's shared, and the rules:**
 - **Shared:** everyone plays in the same world: the same trees, tree damage, felled trees, loose logs and fruit, structures, and day and night.
@@ -179,6 +179,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | `components/Game3D.tsx` | The scene: canvas, cameras, day/night lighting, time and destruction managers, food, mobs, grass, graphics quality, environment-sound updates. |
 | `components/DevPanel.tsx` | The 🛠️ dev menu (`npm run dev` only): power-up and magic switches and test helpers. |
 | `components/InviteQR.tsx` | The invite QR code for joint games (link with the Wi-Fi address and room code), and reading `?join=` when an invite is opened. |
+| `services/qrcode.ts` | A small QR code maker (byte mode, error correction M, versions 1-10) - no packages needed. |
 | `components/Magic.tsx` | The river piranha (swims, chases, bites), magic items (float, pick up, expire) and the Log Shield (hits animals; rivals' shields hurt you in joint games). |
 | `components/WorldObjects.tsx` | Trees, boulders, loose logs (debris bundles), placed structures (instanced) and the placement preview. |
 | `components/Controls.tsx` | Joystick, dive button, zoom slider, top-right buttons and keyboard/mouse input. It writes to `window.woodchuckInput`. |

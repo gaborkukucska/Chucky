@@ -48,9 +48,10 @@ export interface MpState {
     players: Record<string, MpPlayer>;
     feed: MpFeedItem[];
     error: string | null;
+    invite: boolean;   // The invite QR code is showing (pops up after creating a game)
 }
 
-export const MP_OFF: MpState = { status: 'off', code: '', myId: '', team: 'solo', isHost: false, players: {}, feed: [], error: null };
+export const MP_OFF: MpState = { status: 'off', code: '', myId: '', team: 'solo', isHost: false, players: {}, feed: [], error: null, invite: false };
 
 // --- Per-frame data, read by components without re-rendering ---
 export interface RemoteSample {
@@ -131,6 +132,7 @@ class MultiplayerClient {
     private treeReports = new Map<string, { h: number; sentAt: number; pending: boolean }>();
     private feedId = 0;
     private connectTimer: ReturnType<typeof setTimeout> | null = null;
+    private creating = false; // This connection creates a game (then the invite pops up)
 
     myId = '';
     team: Team = 'solo';
@@ -143,9 +145,10 @@ class MultiplayerClient {
     // ------------------------------------------------------------------
     // Connecting
     // ------------------------------------------------------------------
-    create(name: string, team: Team) {
+    /** code: the game code to use (empty = a random one) */
+    create(name: string, team: Team, code = '') {
         const s = useGameStore.getState();
-        this.open({ t: 'create', name, team, seed: Math.floor(Math.random() * 2147483646), tod: 0.08, dayDuration: s.dayDuration }, team);
+        this.open({ t: 'create', name, team, code, seed: Math.floor(Math.random() * 2147483646), tod: 0.08, dayDuration: s.dayDuration }, team);
     }
 
     join(code: string, name: string, team: Team) {
@@ -155,6 +158,7 @@ class MultiplayerClient {
     private open(hello: Record<string, unknown>, team: Team) {
         this.close();
         this.team = team;
+        this.creating = hello.t === 'create';
         this.setMp({ ...MP_OFF, status: 'connecting', team });
         let ws: WebSocket;
         try {
@@ -202,6 +206,11 @@ class MultiplayerClient {
 
     clearError() {
         this.setMp({ error: null });
+    }
+
+    /** Show or hide the invite QR code */
+    showInvite(open: boolean) {
+        this.setMp({ invite: open });
     }
 
     private close() {
@@ -271,7 +280,7 @@ class MultiplayerClient {
                         placedStructures: (msg.structures || []) as PlacedStructure[],
                         timeOfDay: Number(msg.clock?.tod ?? state.timeOfDay),
                         day: Number(msg.clock?.day ?? state.day),
-                        mp: { ...state.mp, status: 'playing', code: String(msg.code), myId: this.myId, team: this.team, isHost: !!msg.host, players, error: null },
+                        mp: { ...state.mp, status: 'playing', code: String(msg.code), myId: this.myId, team: this.team, isHost: !!msg.host, players, error: null, invite: this.creating },
                         runId: state.runId + 1, // Spawn again now the team is known: at its corner of the map
                     };
                 });

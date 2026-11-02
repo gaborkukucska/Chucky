@@ -6,9 +6,10 @@
 // The game server tells us its Wi-Fi address(es) at /api/lan (server/multiplayerServer.ts),
 // because a page opened as http://localhost:3000 can't know it. If this page was itself
 // opened through a network address, that address is used as is.
+// The QR code itself is made by services/qrcode.ts (no packages needed).
 
 import React, { useEffect, useMemo, useState } from 'react';
-import qrcode from 'qrcode-generator';
+import { makeQr } from '../services/qrcode';
 
 const JOIN_PARAM = 'join';
 const LAN_URL = '/api/lan';
@@ -51,14 +52,12 @@ const fetchLan = () => {
 /** The QR code as one SVG path (dark squares), with the quiet margin scanners need */
 const QrSvg = ({ text, size }: { text: string; size: number }) => {
     const { path, count } = useMemo(() => {
-        const qr = qrcode(0, 'M'); // Smallest version that fits, medium error correction
-        qr.addData(text);
-        qr.make();
-        const n = qr.getModuleCount();
+        const modules = makeQr(text); // Smallest version that fits, error correction level M
+        const n = modules.length;
         let d = '';
         for (let r = 0; r < n; r++) {
             for (let c = 0; c < n; c++) {
-                if (qr.isDark(r, c)) d += `M${c + 4} ${r + 4}h1v1h-1z`;
+                if (modules[r][c]) d += `M${c + 4} ${r + 4}h1v1h-1z`;
             }
         }
         return { path: d, count: n + 8 };

@@ -2,9 +2,28 @@
 
 All notable changes to Chucky the Woodchuck. Newest first.
 
-## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–18)
+## 2026-10-31 – 2026-11-01: Regression fixes and new features (rounds 1–19)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.
+
+### Round 19: QR invite fixes, your own game code
+
+**"Failed to resolve import qrcode-generator" (laptop and Termux).** Round 18 needed an extra npm package, and the game wouldn't start where it wasn't installed. The QR codes now come from our own `services/qrcode.ts`, so there's nothing to install.
+- It does byte mode, error correction level M and versions 1-10, which is up to 213 bytes, far more than an invite link needs.
+- Checked by decoding: 28 different texts covering all 10 versions, including UTF-8, decode correctly.
+- Checked against the reference library: with the same mask, every module is identical.
+
+**Finding the QR code.**
+- The invite (QR code and link) now pops up by itself as soon as you create a joint game.
+- A **📱** button next to 📷 brings it back at any time, and ☰ → Players & invite still has it.
+- The game keeps going while it's open.
+
+**Your own game code.** Create used to ignore the code box and always picked a random code. Now:
+- whatever you type (3 or more letters or digits, e.g. TOMS-1 or BEAVERS) becomes the game's code, and an empty box still gives a random one;
+- if a game with that code still has players in it, you're asked to Join it instead, while an empty game kept for rejoining is replaced;
+- codes are matched the same way for Create and Join: case and symbols don't matter, and bark27 is BARK-27.
+
+Files: `services/qrcode.ts` (new), plus `components/InviteQR.tsx`, `App.tsx`, `components/Controls.tsx`, `services/multiplayer.ts`, `server/multiplayerServer.ts`, `package.json`, `README.md`, `CHANGELOG.md`.
 
 ### Round 18: Invite friends with a QR code
 
@@ -13,7 +32,7 @@ About 50 earlier commits had left the game in a bad state: Chucky moved far too 
 - **Other ways to share:** a **🔗 Share link** button (the phone's share sheet, or copy) and the link as text. If the computer is on more than one network, you can pick which address the QR code uses.
 - **How it finds the address:** the server reports its Wi-Fi address(es) and port at `/api/lan`, because a page opened as `localhost` can't know them. If the page was opened through a network address, it uses that one.
 - **After joining:** once an invite is used, `?join=` is removed from the address bar, so a reload doesn't reopen it.
-- New dependency: `qrcode-generator` (MIT, no dependencies of its own). Run `npm install` after updating.
+- ~~New dependency: `qrcode-generator`~~ - replaced in round 19 by our own `services/qrcode.ts`.
 
 Files: `components/InviteQR.tsx` (new), plus `server/multiplayerServer.ts`, `App.tsx`, `services/multiplayer.ts`, `package.json`, `README.md`, `CHANGELOG.md`.
 
