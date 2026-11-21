@@ -10,7 +10,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGameStore, calculateTerrainHeight, getRiverX, getRiverWidth, MAGIC_INFO, MAGIC_ITEM_LIFETIME } from '../store';
-import { currentWoodchuckPos, liveObjects, readBodyPosition } from '../globals';
+import { currentWoodchuckPos, liveObjects, readBodyPosition, fx } from '../globals';
 import { remotePlayers } from '../services/multiplayer';
 import { audioService } from '../services/audio';
 import { MagicItemData, MagicType, PiranhaData } from '../types';
@@ -361,6 +361,7 @@ export const LogShield = () => {
                 const d = Math.hypot(dx, dz) || 1;
                 mob.hit(dx / d, dz / d);
                 audioService.playHit();
+                fx.emit('bonk', p.x, p.y + 0.6, p.z);
             }
         }
     });

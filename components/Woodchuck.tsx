@@ -4,7 +4,7 @@ import { useSphere } from '@react-three/cannon';
 import { Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore, getRiverX, getRiverWidth, calculateTerrainHeight, isNightTime, findDryLand, jointSpawnPoint } from '../store';
-import { currentWoodchuckPos, playerState } from '../globals';
+import { currentWoodchuckPos, playerState, fx } from '../globals';
 import { audioService } from '../services/audio';
 import { PreviewStructureOverlay } from './WorldObjects';
 import { canDemolish, TEAM_INFO, Team } from '../services/multiplayer';
@@ -190,6 +190,8 @@ export const Woodchuck = () => {
     const currentRotationY = useRef(SPAWN_FACING);
     const visualOffsetY = useRef(0.4);
     const lastChopSound = useRef(0);
+    const lastChips = useRef(0);
+    const wasInWater = useRef<boolean | null>(null);
     const storeSyncTimer = useRef(0);
     const isChomping = useRef(false);
     const colliders = useRef(new Map<string, StructureCollider>());
@@ -498,7 +500,15 @@ export const Woodchuck = () => {
         const breathStep = Math.round(breath.current * 50) / 50;
         if (s.isInWater !== inWater || s.breath !== breathStep) s.setWaterState(inWater, breathStep);
 
+        // Splashes: jumping in, and bursting back up after a dive
+        if (wasInWater.current === false && inWater) {
+            fx.emit('splash', x, WATER_LEVEL, z, 18);
+            audioService.playPlop(0.6);
+        }
+        wasInWater.current = inWater;
+
         const nowUnderwater = inWater && y < WATER_LEVEL - 0.2;
+        if (!nowUnderwater && underwaterRef.current) fx.emit('splash', x, WATER_LEVEL, z, 12);
         if (nowUnderwater !== underwaterRef.current) {
             underwaterRef.current = nowUnderwater;
             setUnderwater(nowUnderwater);
@@ -566,6 +576,7 @@ export const Woodchuck = () => {
 
         // --- Chomping (restored: this damage call was lost in the March refactor) ---
         let chomped = false;
+        let chompAt: TreeData | null = null; // The (nearest) tree being chomped: wood chips fly from it
         if (!s.isPlacementMode && !knockedOut) {
             if (s.isTreePowerupActive) {
                 // Mega Chomp: every standing tree in range, nearest damaged last so it's the one shown in the UI
@@ -578,6 +589,7 @@ export const Woodchuck = () => {
                 inRange.sort((a, b) => b.d - a.d);
                 for (const { tree } of inRange) s.damageTree(tree.id, CHOMP_DPS * delta);
                 chomped = inRange.length > 0;
+                if (chomped) chompAt = inRange[inRange.length - 1].tree;
             } else {
                 // Normal: the nearest tree Chucky is touching
                 let best: TreeData | null = null;
@@ -594,11 +606,20 @@ export const Woodchuck = () => {
                 if (best) {
                     s.damageTree(best.id, CHOMP_DPS * delta);
                     chomped = true;
+                    chompAt = best;
                 }
             }
         }
 
         if (chomped) {
+            if (chompAt && time - lastChips.current > 0.12) {
+                lastChips.current = time;
+                // On the trunk, on Chucky's side, at teeth height
+                const tx = chompAt.position[0], tz = chompAt.position[2];
+                const d = Math.hypot(x - tx, z - tz) || 1;
+                const r = trunkBaseRadius(chompAt);
+                fx.emit('chips', tx + ((x - tx) / d) * r, y + 0.1, tz + ((z - tz) / d) * r);
+            }
             if (time - lastChopSound.current > CHOP_SOUND_INTERVAL) {
                 audioService.playChop();
                 lastChopSound.current = time;

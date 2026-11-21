@@ -7,7 +7,9 @@ import { multiplayer, canDemolish, MP_OFF, MpState } from './services/multiplaye
 import type { Fact } from './services/facts';
 import { persistence, SaveData, SAVE_VERSION, sanitizeName } from './services/persistence';
 import { generateBlueprints, BLUEPRINT_THRESHOLDS } from './blueprints';
-import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, readBodyTransform } from './globals';
+import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, readBodyTransform, fx } from './globals';
+import { Challenge, ChallengeStat, ChallengeTallies, NO_TALLIES, CHALLENGE_SLOTS, CHALLENGE_STREAK, pickChallenge, challengeText, challengeIcon } from './services/challenges';
+import { getWeather, WEATHER_SLOTS } from './services/weather';
 
 export const MAP_SIZE = 300;
 
@@ -113,7 +115,12 @@ export const MAGIC_INFO: Record<MagicType, { icon: string; label: string; durati
 };
 // Dev menu (npm run dev only, components/DevPanel.tsx)
 export type DevPowerup = 'tree' | 'log' | 'speed' | MagicType;
-export type DevAction = 'magic' | 'wood' | 'heal' | 'wolf' | 'bear' | 'piranha' | 'night' | 'day';
+export type DevAction = 'magic' | 'wood' | 'heal' | 'wolf' | 'bear' | 'piranha' | 'night' | 'day' | 'rain' | 'storm' | 'rainbow' | 'clear';
+// --- Rainbow treasure (after rain, where the rainbow ends) ---
+const RAINBOW_POINTS = 100;
+const RAINBOW_WOOD = 10;
+const RAIN_MOB_FACTOR = 0.6;      // Rain keeps up to this share of the wolves and bears away
+
 const MAGIC_WEIGHTS: [MagicType, number][] = [['shield', 35], ['triple', 25], ['bubble', 20], ['double', 20]];
 const MAGIC_DROP_CHANCE = { wolf: 0.3, bear: 0.5 };
 export const MAGIC_ITEM_LIFETIME = 60000;  // ms a dropped item floats before it vanishes
@@ -182,6 +189,11 @@ interface GameState {
   piranhaRespawnAt: number;      // When the next piranha turns up (0 = none pending)
   piranhaBites: number;          // This game, for Chucky's facts
   magicFound: number;
+  // Chucky's Challenges (services/challenges.ts)
+  challenges: Challenge[];
+  challengesDone: number;
+  tallies: ChallengeTallies;     // Counts only the challenges need (builds, fruit, nights...)
+  rainbowFound: string;          // Slot key of the last rainbow whose treasure we took
   woodCount: number;
   score: number;
   totalLogsCollected: number;
@@ -323,6 +335,8 @@ interface GameState {
   expireMagic: (id: string) => void;
   defeatPiranha: (id: string, position: Vec3) => void;
   piranhaBite: () => void;
+  checkChallenges: () => void;
+  collectRainbow: (slotKey: string) => void;
   devPowerup: (kind: DevPowerup, on: boolean) => void;   // Dev menu only
   devAction: (action: DevAction, playerPos: Vec3) => void; // Dev menu only
 }
@@ -646,6 +660,29 @@ const _saveQuat = new THREE.Quaternion();
 const _saveEuler = new THREE.Euler();
 const roundVec = (v: Vec3 | number[]): Vec3 => [round3(v[0]), round3(v[1]), round3(v[2])];
 
+// A tally a challenge counts (see services/challenges.ts)
+export const statValue = (s: GameState, stat: ChallengeStat): number => {
+    switch (stat) {
+        case 'trees': return s.treesFelled;
+        case 'logs': return s.totalLogsCollected;
+        case 'chased': return s.mobsChased;
+        case 'throws': return s.throwsMade;
+        case 'magic': return s.magicFound;
+        default: return s.tallies[stat] ?? 0;
+    }
+};
+
+const randomMagicType = (): MagicType => {
+    let r = Math.random() * MAGIC_WEIGHTS.reduce((a, [, w]) => a + w, 0);
+    for (const [type, w] of MAGIC_WEIGHTS) {
+        r -= w;
+        if (r <= 0) return type;
+    }
+    return 'shield';
+};
+
+const addTally = (s: GameState, key: keyof ChallengeTallies, n = 1): ChallengeTallies => ({ ...s.tallies, [key]: (s.tallies[key] ?? 0) + n });
+
 // =====================================================================
 // Blueprint unlocks (shared by log collection and building)
 // BP 0 unlocks after 3 logs; the rest by score. Each unlock adds +100 score,
@@ -691,6 +728,7 @@ const applyUnlocks = (blueprints: Blueprint[], totalLogs: number, score: number)
 const applyLogCollected = (state: GameState, value = 1): Partial<GameState> => {
     const now = Date.now();
     audioService.playSuccess();
+    fx.emit('sparkle', currentWoodchuckPos.x, currentWoodchuckPos.y + 0.8, currentWoodchuckPos.z, 5 + value);
 
     // Update Combo
     let newCombo = { ...state.combo };
@@ -726,6 +764,7 @@ const applyLogCollected = (state: GameState, value = 1): Partial<GameState> => {
         newCombo.levelStartTime = now;
         pointsGained += newCombo.multiplier - 1;
     }
+    const reachedMaxCombo = newCombo.multiplier === COMBO_MAX_MULTIPLIER && state.combo.multiplier < COMBO_MAX_MULTIPLIER;
 
     // Log Powerup Logic
     let isLogPowerupActive = state.isLogPowerupActive;
@@ -778,6 +817,7 @@ const applyLogCollected = (state: GameState, value = 1): Partial<GameState> => {
         isLogPowerupActive,
         logPowerupEndTime,
         hasSeenLogPowerupPopup,
+        ...(reachedMaxCombo ? { tallies: addTally(state, 'combo4') } : {}),
         // Never un-pause here: a physics collision can fire while a menu is open
         ...(shouldPause ? pauseFields(state) : {})
     };
@@ -828,6 +868,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   piranhaRespawnAt: 0,
   piranhaBites: 0,
   magicFound: 0,
+  challenges: [],
+  challengesDone: 0,
+  tallies: { ...NO_TALLIES },
+  rainbowFound: '',
   isPlacementMode: false,
   isBuildMenuOpen: false,
   selectedBlueprintId: null,
@@ -898,6 +942,10 @@ export const useGameStore = create<GameState>((set, get) => ({
           piranhaRespawnAt: 0,
           piranhaBites: 0,
           magicFound: 0,
+          challenges: [],          // checkChallenges hands out the first three
+          challengesDone: 0,
+          tallies: { ...NO_TALLIES },
+          rainbowFound: '',
           leaderboardRank: null,
           spawnPoint: null,
           spawnFacing: Math.PI / 2,
@@ -1082,6 +1130,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           piranhaRespawnAt: Date.now() + PIRANHA_RESPAWN_MIN_MS + Math.random() * (PIRANHA_RESPAWN_MAX_MS - PIRANHA_RESPAWN_MIN_MS),
           magicItems: [...state.magicItems, ...rollMagicDrop(position, 1)],
           mobsChased: state.mobsChased + 1,
+          tallies: addTally(state, 'piranhas'),
           score: unlocks.score,
           blueprints: unlocks.blueprints,
           notification: unlocks.notification ?? {
@@ -1099,6 +1148,97 @@ export const useGameStore = create<GameState>((set, get) => ({
       set({ piranhaBites: s.piranhaBites + 1 });
       get().takeDamage(PIRANHA_BITE_DAMAGE);
   },
+
+  // ----- Chucky's Challenges: hand out new ones, pay out finished ones (every frame, cheap) -----
+  checkChallenges: () => {
+      const s = get();
+      if (s.phase !== 'PLAYING' || s.isPaused) return;
+      const finished = s.challenges.filter(c => statValue(s, c.stat) - c.base >= c.target);
+      if (finished.length === 0 && s.challenges.length >= CHALLENGE_SLOTS) return;
+
+      set((state) => {
+          const now = Date.now();
+          const ctx = {
+              isNight: isNightTime(state.timeOfDay),
+              timeOfDay: state.timeOfDay,
+              canBuild: state.blueprints[0]?.unlocked ?? false,
+              hasPiranha: state.piranhas.length > 0,
+          };
+          let done = state.challengesDone;
+          let points = 0;
+          let magic = state.magic;
+          let gotMagic: MagicType | null = null;
+          const doneIds = new Set(finished.map(c => c.id));
+          for (const c of finished) {
+              points += c.reward;
+              done++;
+              if (done % CHALLENGE_STREAK === 0) {
+                  gotMagic = randomMagicType();
+                  magic = { ...magic, [gotMagic]: Math.max(now, magic[gotMagic]) + MAGIC_INFO[gotMagic].duration };
+              }
+          }
+          // Swap each finished one for a new one in the same place, then fill any empty slots
+          const inPlay = (list: Challenge[]) => list.map(c => c.stat);
+          const list: Challenge[] = [];
+          for (const c of state.challenges) {
+              if (!doneIds.has(c.id)) { list.push(c); continue; }
+              const keep = state.challenges.filter(o => !doneIds.has(o.id));
+              list.push(pickChallenge(done, ctx, [...inPlay(keep), ...inPlay(list), c.stat], stat => statValue(state, stat)));
+          }
+          while (list.length < CHALLENGE_SLOTS) {
+              list.push(pickChallenge(done, ctx, inPlay(list), stat => statValue(state, stat)));
+          }
+          if (finished.length === 0) return { challenges: list };
+
+          audioService.playFanfare();
+          const p = currentWoodchuckPos;
+          fx.emit('confetti', p.x, p.y + 1.2, p.z);
+          const unlocks = applyUnlocks(state.blueprints, state.totalLogsCollected, state.score + points);
+          const first = finished[0];
+          const extra = gotMagic ? ` ${MAGIC_INFO[gotMagic].icon} ${MAGIC_INFO[gotMagic].label} for a ${CHALLENGE_STREAK}-challenge streak!` : '';
+          return {
+              challenges: list,
+              challengesDone: done,
+              magic,
+              score: unlocks.score,
+              blueprints: unlocks.blueprints,
+              ...(unlocks.notification
+                  ? notifyAndPause(state, unlocks.notification)
+                  : {
+                      notification: {
+                          id: `challenge-${now}`,
+                          title: 'CHALLENGE COMPLETE!',
+                          message: `${challengeIcon(first)} ${challengeText(first)}: +${points} points.${extra}`,
+                          type: 'achievement' as const,
+                      },
+                  }),
+          };
+      });
+  },
+
+  // The treasure where the rainbow ends (components/Weather.tsx); each player can take it once
+  collectRainbow: (slotKey) => set((state) => {
+      if (state.phase !== 'PLAYING' || state.rainbowFound === slotKey) return state;
+      const now = Date.now();
+      const type = randomMagicType();
+      const info = MAGIC_INFO[type];
+      const unlocks = applyUnlocks(state.blueprints, state.totalLogsCollected, state.score + RAINBOW_POINTS);
+      audioService.playTreasure();
+      return {
+          rainbowFound: slotKey,
+          tallies: addTally(state, 'rainbows'),
+          woodCount: state.woodCount + RAINBOW_WOOD,
+          magic: { ...state.magic, [type]: Math.max(now, state.magic[type]) + info.duration },
+          score: unlocks.score,
+          blueprints: unlocks.blueprints,
+          notification: unlocks.notification ?? {
+              id: `rainbow-${slotKey}`,
+              title: '🌈 RAINBOW TREASURE!',
+              message: `+${RAINBOW_POINTS} points, ${RAINBOW_WOOD} logs and ${info.icon} ${info.label}!`,
+              type: 'achievement',
+          },
+      };
+  }),
 
   // ----- Dev menu (npm run dev only): switch power-ups and magic, spawn things to test -----
   devPowerup: (kind, on) => set((state) => {
@@ -1157,6 +1297,24 @@ export const useGameStore = create<GameState>((set, get) => ({
               return state.mp.status !== 'off' ? state : { timeOfDay: 0.55 }; // Joint games: the room owns the clock
           case 'day':
               return state.mp.status !== 'off' ? state : { timeOfDay: 0.05 };
+          case 'rain':
+          case 'storm':
+          case 'rainbow':
+          case 'clear': {
+              // Jump the clock forward to the next daytime moment with that weather
+              if (state.mp.status !== 'off') return state;
+              const start = state.day + state.timeOfDay;
+              for (let t = Math.ceil(start * 100) / 100 + 0.01; t < start + 60; t += 0.01) {
+                  const day = Math.floor(t), tod = t - day;
+                  if (tod < 0.04 || tod > 0.42) continue;
+                  const w = getWeather(state.worldSeed, day, tod);
+                  const mid = Math.abs(((tod * WEATHER_SLOTS) % 1) - 0.5) < 0.3; // Not while it blends into the next
+                  if (action === 'rainbow' ? w.rainbow > 0.9 : w.kind === action && mid) {
+                      return { day, timeOfDay: tod };
+                  }
+              }
+              return state;
+          }
       }
       return state;
   }),
@@ -1307,6 +1465,14 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
 
     audioService.playChomp();
+    {
+        // Leaves and chips burst out of the crown and the stump
+        const [tx, , tz] = tree.position;
+        const ty = calculateTerrainHeight(tx, tz);
+        const sc = tree.size === 'large' ? 1.5 : tree.size === 'medium' ? 1.1 : 0.8;
+        fx.emit('fell', tx, ty + 4 * sc, tz, Math.round(24 * sc));
+        fx.emit('chips', tx, ty + 0.6, tz, 10);
+    }
 
     // Tree Powerup Logic - 3 trees within 30 seconds
     const newTreesChomped = [...state.treesChomped.filter(t => now - t <= 30000), now];
@@ -1409,13 +1575,15 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (!food) return state;
 
       audioService.playSuccess();
+      fx.emit('sparkle', currentWoodchuckPos.x, currentWoodchuckPos.y + 0.8, currentWoodchuckPos.z, 8);
 
       // Heal - Allow Overheal up to 200%
       const healAmount = food.type === 'apple' ? 20 : 10;
       const maxOverheal = state.maxHealth * 2;
       const updates: Partial<GameState> = {
           food: state.food.filter(f => f.id !== id),
-          health: Math.min(maxOverheal, state.health + healAmount)
+          health: Math.min(maxOverheal, state.health + healAmount),
+          tallies: addTally(state, 'fruit'),
       };
 
       // Berries charge up Zoomies (speed boost)
@@ -1533,6 +1701,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           score: unlocks.score,
           blueprints: unlocks.blueprints,
           placedStructures: [...state.placedStructures, newStructure],
+          tallies: { ...state.tallies, builds: state.tallies.builds + 1, riverBuilds: state.tallies.riverBuilds + (inRiver ? 1 : 0) },
           isPlacementMode: keepPlacing,
           selectedBlueprintId: keepPlacing ? state.selectedBlueprintId : null,
           placementValid: true,
@@ -1705,7 +1874,11 @@ export const useGameStore = create<GameState>((set, get) => ({
               speedMs: remaining(s.isSpeedPowerupActive, s.speedPowerupEndTime)
           },
           seenPopups: { tree: s.hasSeenTreePowerupPopup, log: s.hasSeenLogPowerupPopup, speed: s.hasSeenSpeedPowerupPopup },
-          runKey: s.runKey
+          runKey: s.runKey,
+          challenges: s.challenges.map(c => ({ stat: c.stat, target: c.target, reward: c.reward, progress: Math.max(0, statValue(s, c.stat) - c.base) })),
+          challengesDone: s.challengesDone,
+          tallies: s.tallies,
+          rainbowFound: s.rainbowFound,
       };
 
       const ok = persistence.writeSlot(slot, data);
@@ -1799,7 +1972,20 @@ export const useGameStore = create<GameState>((set, get) => ({
               isPaused: false,
               lastPauseStartTime: 0,
               isInWater: false,
-              breath: 1
+              breath: 1,
+              tallies: { ...NO_TALLIES, ...(data.tallies ?? {}) },
+              challengesDone: data.challengesDone ?? 0,
+              rainbowFound: data.rainbowFound ?? '',
+          }));
+          // Challenges keep their progress: count on from the tallies as they are now
+          set((state) => ({
+              challenges: (data.challenges ?? []).map((c, i) => ({
+                  id: `ch-${tag}-${i}`,
+                  stat: c.stat,
+                  target: c.target,
+                  reward: c.reward,
+                  base: statValue(state, c.stat) - c.progress,
+              })),
           }));
           return { ok: true, message: `Loaded slot ${slot}.` };
       } catch (e) {
@@ -1876,7 +2062,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       let newMobs = state.mobs;
 
       if (isNightTime(newTime)) {
-          if (state.mobs.length < MAX_MOBS && Math.random() < MOB_SPAWN_RATE * delta) {
+          const rain = getWeather(state.worldSeed, newDay, newTime).rain;
+          if (state.mobs.length < MAX_MOBS && Math.random() < MOB_SPAWN_RATE * (1 - RAIN_MOB_FACTOR * rain) * delta) {
              const angle = Math.random() * Math.PI * 2;
              const dist = 30 + Math.random() * 20; // Spawn away from player
              const limit = MAP_SIZE / 2 - 10;
@@ -1912,6 +2099,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       return {
           timeOfDay: newTime,
           day: newDay,
+          ...(newDay > state.day ? { tallies: addTally(state, 'nights') } : {}),
           mobs: newMobs,
           health: newHealth,
           ...(piranhaReturns ? { piranhas: [newPiranha(playerPos)], piranhaRespawnAt: 0 } : {}),
@@ -1945,3 +2133,6 @@ export const useGameStore = create<GameState>((set, get) => ({
 
 // Apply this device's saved sound settings once at start-up
 audioService.applySettings(useGameStore.getState().audioSettings);
+
+// Dev servers only: reach the store from the browser console (and from automated play-tests)
+if (import.meta.env.DEV) (window as any).__chuckyStore = useGameStore;

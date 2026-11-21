@@ -12,6 +12,11 @@ import type { GraphicsQuality } from './types';
 import { multiplayer, TEAMS, TEAM_INFO, Team } from './services/multiplayer';
 import { InviteQR, readJoinCode, clearJoinCode } from './components/InviteQR';
 import { facts } from './services/facts';
+import { Minimap } from './components/Minimap';
+import { liveWeather } from './components/Weather';
+import { WEATHER_INFO, WeatherKind } from './services/weather';
+import { challengeIcon, challengeText } from './services/challenges';
+import { statValue } from './store';
 
 // =====================================================================
 // Error boundary
@@ -139,6 +144,81 @@ const ComboUI = () => {
     );
 };
 
+// The weather right now (components/Weather.tsx works it out every frame; the HUD checks once a second)
+const useWeatherKind = (): WeatherKind => {
+    const [kind, setKind] = useState<WeatherKind>(liveWeather.kind);
+    useEffect(() => {
+        const id = setInterval(() => setKind(liveWeather.kind), 1000);
+        return () => clearInterval(id);
+    }, []);
+    return kind;
+};
+
+// =====================================================================
+// Chucky's Challenges: three goals under the HUD; tap the title to fold them away
+// =====================================================================
+const ChallengesPanel = () => {
+    const challenges = useGameStore(state => state.challenges);
+    const done = useGameStore(state => state.challengesDone);
+    // Progress as a string, so the panel only re-renders when a number changes
+    const progress = useGameStore(state => state.challenges.map(c => Math.min(c.target, Math.max(0, statValue(state, c.stat) - c.base))).join(','));
+    // Folded or not is remembered on this device
+    const [open, setOpenState] = useState(() => { try { return localStorage.getItem('chucky.challenges.open') !== '0'; } catch { return true; } });
+    const setOpen = (f: (o: boolean) => boolean) => setOpenState(o => {
+        const next = f(o);
+        try { localStorage.setItem('chucky.challenges.open', next ? '1' : '0'); } catch { /* ignore */ }
+        return next;
+    });
+    const [flash, setFlash] = useState(false);
+    const lastDone = React.useRef(done);
+    useEffect(() => {
+        if (done > lastDone.current) {
+            setFlash(true);
+            const t = setTimeout(() => setFlash(false), 1200);
+            lastDone.current = done;
+            return () => clearTimeout(t);
+        }
+        lastDone.current = done;
+    }, [done]);
+
+    if (challenges.length === 0) return null;
+    const values = progress.split(',').map(Number);
+
+    return (
+        <div className={`bg-black/50 backdrop-blur-sm px-2 py-1.5 rounded-lg border w-full text-white transition-colors duration-300 ${flash ? 'border-amber-300 bg-amber-500/40' : 'border-white/10'}`}>
+            <button
+                className="w-full flex items-center justify-between text-[9px] font-black uppercase tracking-wider text-amber-300 pointer-events-auto"
+                onClick={() => setOpen(o => !o)}
+                onMouseDown={e => e.preventDefault()}
+                tabIndex={-1}
+            >
+                <span>🎯 Challenges</span>
+                <span className="text-white/60 font-bold normal-case tracking-normal">{done > 0 ? `✓ ${done} ` : ''}{open ? '▾' : '▸'}</span>
+            </button>
+            {open && (
+                <div className="mt-1 space-y-1">
+                    {challenges.map((c, i) => {
+                        const v = values[i] ?? 0;
+                        return (
+                            <div key={c.id} className="animate-[fadein_0.4s_ease-out]">
+                                <div className="flex items-start gap-1 text-[9px] leading-tight font-semibold">
+                                    <span className="text-[10px] leading-none">{challengeIcon(c)}</span>
+                                    <span className="flex-1">{challengeText(c)}</span>
+                                    <span className="font-mono text-white/70">{v}/{c.target}</span>
+                                </div>
+                                <div className="flex items-center gap-1 mt-0.5">
+                                    <Bar value={v / c.target} color="bg-gradient-to-r from-amber-500 to-yellow-300" />
+                                    <span className="text-[8px] text-amber-200/80 font-bold w-7 text-right">+{c.reward}</span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const Hud = () => {
     const health = useGameStore(state => state.health);
     const maxHealth = useGameStore(state => state.maxHealth);
@@ -156,6 +236,7 @@ const Hud = () => {
     );
 
     const overheal = health > maxHealth;
+    const weather = useWeatherKind();
 
     return (
         <div className="absolute top-2 left-2 z-30 pointer-events-none flex flex-col gap-1 w-40">
@@ -173,7 +254,7 @@ const Hud = () => {
                 </div>
                 {/* Day + berries */}
                 <div className="flex items-center justify-between text-[9px] text-white/70 font-bold leading-none">
-                    <span>{isNight ? '🌙' : '☀️'} Day {day}</span>
+                    <span>{isNight ? '🌙' : '☀️'} Day {day}{weather !== 'clear' && <span title={WEATHER_INFO[weather].label}> · {WEATHER_INFO[weather].icon}</span>}</span>
                     <span title="Berries towards Zoomies">🫐 {berriesEaten}/{BERRIES_FOR_ZOOMIES}</span>
                 </div>
                 {/* Joint game: room code + players */}
@@ -201,6 +282,7 @@ const Hud = () => {
                 )}
             </div>
             <ComboUI />
+            <ChallengesPanel />
         </div>
     );
 };
@@ -1197,6 +1279,7 @@ export default function App() {
                 <>
                     <Hud />
                     <PowerupPills />
+                    <Minimap />
                     <NotificationUI />
                     <PlacementPanel />
                     <Controls />

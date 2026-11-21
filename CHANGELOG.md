@@ -2,6 +2,45 @@
 
 All notable changes to Chucky the Woodchuck. Newest first.
 
+## 2026-11-22: Weather, challenges, a minimap and a lot of polish (round 21)
+
+**After pulling this update, run `npm install`** (Tailwind is now built into the game).
+
+### Fixes
+- **The grass was never drawn.** Since round 6, a typo in the grass shader (`trsformed`) stopped it from compiling, so no grass appeared at all (the browser console filled with `useProgram: program not valid`). Fixed, and blades right in front of the camera now shrink away instead of filling the screen.
+- **Works without internet.** Tailwind CSS came from a CDN, so on a Wi-Fi without internet (a LAN party, a phone hotspot with no data) the menus and HUD lost all their styling. Tailwind is now built in (PostCSS), and the clouds use a texture that ships with the game (`public/cloud.png`) instead of one from a CDN. The unused import map that pointed at esm.sh is gone too.
+
+### New: weather
+- **Clear, cloudy, rain and thunderstorms.** Each day has three weather stretches. Clouds grey the sky over and dim the sun, fog rolls in, rain streaks past the camera, the grass sways harder, and storms bring lightning bolts, flashes and thunder that arrives later the further away the strike was.
+- **The same weather for everyone.** The weather comes from the world seed and the game clock, not from random rolls, so joint games agree on every raindrop stretch, lightning strike and rainbow without any new network messages. Saves keep it too.
+- **🌈 Rainbows.** When the sun comes out after rain (by day), a rainbow appears with a pot of treasure at its foot: +100 points, 10 logs and a random magic. A beam of light and a ⭐ on the minimap show the way. Each player can take each rainbow's treasure once.
+- **Gameplay:** rain keeps up to 60% of the wolves and bears in their dens. Birds and crickets go quiet in the rain.
+- **Dev menu:** jump the clock to the next rain, storm, rainbow or clear sky.
+
+### New: Chucky's Challenges
+- Three goals at a time under your stats, picked from 11 kinds (trees, logs, fruit, throws, a 4× combo, building, building in the river, chasing off wolves and bears, making it through the night, the piranha, magic). Night-only and building challenges are only handed out when they can be done.
+- Each one pays bonus points (30 to start, more as you go) and is replaced by a slightly harder one. Every third finished challenge also gives a random magic. Confetti and a fanfare mark each one.
+- Challenges and their progress are saved with the game. Older saves get fresh challenges.
+
+### New: minimap
+- The whole map in the bottom-right corner, north up: the river and hills, trees, structures (yours brown, rivals' grey), wolves and bears, magic items, the rainbow treasure, other players in their team colours, and an arrow for Chucky. It gets darker at night. Tap it to make it bigger.
+
+### New: juicy details
+- Wood chips fly off the trunk while you chomp, and leaves and chips burst out of a falling tree.
+- Splashes when you jump into the river and when you come back up from a dive.
+- Sparkles when you pick up logs and fruit, and a bonk when a log or the Log Shield hits a wolf or bear.
+- Fireflies blink over the grass on dry nights (Medium and High graphics), and fish now and then leap out of the river near Chucky, with a plop.
+- Chucky has a new intro tip (challenges, the map and rainbows) and a new fact about storms.
+
+### Under the hood
+- `services/weather.ts`, `services/challenges.ts`, `components/Weather.tsx`, `components/Effects.tsx` and `components/Minimap.tsx` are new.
+- `fx.emit()` in `globals.ts` queues a particle burst from anywhere; one instanced mesh draws them all.
+- react-three-fiber copies number uniforms into a `<shaderMaterial>` when it applies props, so later updates never reached the GPU. The new shaders are made with `new THREE.ShaderMaterial(...)` instead.
+- On a dev server, `window.__chuckyStore` and `window.__chuckyWeather` make the game easy to poke at from the console. Neither is in production builds.
+- Tested: `tsc` (0 errors), `vite build`, and headless-browser play-tests of rain, storms, lightning, a rainbow and its treasure, challenges (completion, streak, save and load), night, a phone-sized screen, a production build and a two-player joint game.
+
+Files: `services/weather.ts`, `services/challenges.ts`, `components/Weather.tsx`, `components/Effects.tsx`, `components/Minimap.tsx`, `public/cloud.png`, `index.css`, `tailwind.config.js`, `postcss.config.js` (new), plus `index.html`, `index.tsx`, `package.json`, `globals.ts`, `store.ts`, `App.tsx`, `components/Game3D.tsx`, `components/Woodchuck.tsx`, `components/WorldObjects.tsx`, `components/Magic.tsx`, `components/DevPanel.tsx`, `services/audio.ts`, `services/persistence.ts`, `public/chucky-facts.json`, `README.md`, `CHANGELOG.md`.
+
 ## 2026-10-31 – 2026-11-02: Regression fixes and new features (rounds 1–20)
 
 About 50 earlier commits had left the game in a bad state: Chucky moved far too fast, and the chomp meter appeared but trees never took damage. This series fixes the regressions and then adds the features requested during play-testing on a phone. Every round was type-checked (`tsc`: 0 errors), built with `vite build` and tested in a headless browser before delivery.

@@ -22,6 +22,11 @@ const HELPERS: { action: DevAction; label: string; soloOnly?: boolean }[] = [
     { action: 'heal', label: '❤️ Full health' },
     { action: 'night', label: '🌙 Night', soloOnly: true }, // A joint game's clock comes from the room
     { action: 'day', label: '☀️ Day', soloOnly: true },
+    // Weather comes from the seed and the clock: these jump the clock to the next such weather
+    { action: 'rain', label: '🌧️ Next rain', soloOnly: true },
+    { action: 'storm', label: '⛈️ Next storm', soloOnly: true },
+    { action: 'rainbow', label: '🌈 Next rainbow', soloOnly: true },
+    { action: 'clear', label: '☀️ Next clear', soloOnly: true },
 ];
 
 const secs = (end: number) => Math.max(0, Math.ceil((end - Date.now()) / 1000));

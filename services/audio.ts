@@ -18,6 +18,7 @@ export interface EnvironmentState {
     riverDistance: number;   // Metres from Chucky to the river's edge (0 = in the water)
     isNight: boolean;
     isUnderwater: boolean;
+    rain?: number;           // 0..1 how hard it rains (services/weather.ts)
 }
 
 const MASTER_VOLUME = 1.0;   // Individual sounds carry their own levels (unchanged from before)
@@ -28,6 +29,7 @@ const RIVER_MAX_GAIN = 0.2;
 const WIND_GAIN = 0.012;
 const RIVER_CUTOFF = 900;    // Hz
 const UNDERWATER_CUTOFF = 320;
+const RAIN_MAX_GAIN = 0.11;  // Hiss of heavy rain
 
 class AudioService {
     private ctx: AudioContext | null = null;
@@ -48,6 +50,7 @@ class AudioService {
     private riverFilter: BiquadFilterNode | null = null;
     private riverGain: GainNode | null = null;
     private windGain: GainNode | null = null;
+    private rainGain: GainNode | null = null;
     private birdTimer: ReturnType<typeof setTimeout> | null = null;
     private cricketTimer: ReturnType<typeof setTimeout> | null = null;
     private env: EnvironmentState = { riverDistance: 100, isNight: false, isUnderwater: false };
@@ -322,6 +325,96 @@ class AudioService {
         osc.stop(now + 0.2);
     }
 
+    /** A quieter, higher plop (fish jumping, things landing in the water); 0..1 volume */
+    public playPlop(volume = 0.4) {
+        if (!this.sfxReady() || volume <= 0.01) return;
+        const ctx = this.ctx!;
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(700, now);
+        osc.frequency.exponentialRampToValueAtTime(140, now + 0.12);
+        gain.gain.setValueAtTime(0.25 * volume, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        osc.connect(gain);
+        gain.connect(this.buses.sfx!);
+        osc.start(now);
+        osc.stop(now + 0.18);
+    }
+
+    /** Thunder: a crack (near strikes) and a long low rumble. distance in metres, 0..~250 */
+    public playThunder(distance: number) {
+        if (!this.envReady()) return;
+        const ctx = this.ctx!;
+        const buffer = this.getNoiseBuffer();
+        if (!buffer) return;
+        const now = ctx.currentTime;
+        const near = Math.max(0, Math.min(1, 1 - distance / 220));
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(220 + near * 900, now);
+        filter.frequency.exponentialRampToValueAtTime(90, now + 2.5);
+        const gain = ctx.createGain();
+        const peak = 0.25 + near * 0.9;
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(peak, now + 0.05 + (1 - near) * 0.25);
+        // Rolling: a couple of swells on the way down
+        gain.gain.exponentialRampToValueAtTime(peak * 0.35, now + 0.7);
+        gain.gain.exponentialRampToValueAtTime(peak * 0.55, now + 1.1);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 3.2);
+        source.connect(filter).connect(gain).connect(this.buses.environment!);
+        source.start(now, Math.random() * 1.0);
+        source.stop(now + 3.3);
+    }
+
+    /** Challenge complete: a bright little fanfare */
+    public playFanfare() {
+        if (!this.sfxReady()) return;
+        const ctx = this.ctx!;
+        const now = ctx.currentTime;
+        const notes: [number, number, number][] = [[523.25, 0, 0.12], [659.25, 0.12, 0.12], [783.99, 0.24, 0.12], [1046.5, 0.36, 0.45]];
+        for (const [f, at, len] of notes) {
+            for (const [type, vol, detune] of [['square', 0.035, 0], ['triangle', 0.08, 5]] as const) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = type;
+                osc.frequency.value = f;
+                osc.detune.value = detune;
+                gain.gain.setValueAtTime(vol, now + at);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + at + len);
+                osc.connect(gain);
+                gain.connect(this.buses.sfx!);
+                osc.start(now + at);
+                osc.stop(now + at + len + 0.02);
+            }
+        }
+    }
+
+    /** Rainbow treasure: a shimmering run of high notes */
+    public playTreasure() {
+        if (!this.sfxReady()) return;
+        const ctx = this.ctx!;
+        const now = ctx.currentTime;
+        const scale = [1046.5, 1174.66, 1318.51, 1567.98, 1760, 2093, 2349.32, 2637.02];
+        scale.forEach((f, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = f;
+            const t = now + i * 0.06;
+            gain.gain.setValueAtTime(0.0001, t);
+            gain.gain.exponentialRampToValueAtTime(0.06, t + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+            osc.connect(gain);
+            gain.connect(this.buses.sfx!);
+            osc.start(t);
+            osc.stop(t + 0.52);
+        });
+    }
+
     // ------------------------------------------------------------------
     // Music - minimalist bit-jazz loop (walking bass, chords, swing)
     // ------------------------------------------------------------------
@@ -451,7 +544,9 @@ class AudioService {
         this.riverFilter.frequency.setTargetAtTime(state.isUnderwater ? UNDERWATER_CUTOFF : RIVER_CUTOFF, now, 0.15);
         // Gusty wind: slow wobble, quieter under water
         const gust = 0.6 + 0.4 * Math.sin(now * 0.37) * Math.sin(now * 0.13 + 1);
-        this.windGain.gain.setTargetAtTime(state.isUnderwater ? 0 : WIND_GAIN * gust, now, 0.8);
+        const rain = state.rain ?? 0;
+        this.windGain.gain.setTargetAtTime(state.isUnderwater ? 0 : WIND_GAIN * gust * (1 + rain * 2.5), now, 0.8);
+        this.rainGain?.gain.setTargetAtTime(RAIN_MAX_GAIN * rain * (state.isUnderwater ? 0.25 : 1), now, 0.6);
     }
 
     private getNoiseBuffer() {
@@ -506,11 +601,21 @@ class AudioService {
             windGain.gain.value = WIND_GAIN;
             source.connect(windFilter).connect(windGain).connect(out);
 
+            // Rain: high-passed noise, only heard while it rains
+            const rainFilter = ctx.createBiquadFilter();
+            rainFilter.type = 'highpass';
+            rainFilter.frequency.value = 2200;
+            rainFilter.Q.value = 0.3;
+            const rainGain = ctx.createGain();
+            rainGain.gain.value = 0;
+            source.connect(rainFilter).connect(rainGain).connect(out);
+
             source.start();
             this.noiseSource = source;
             this.riverFilter = riverFilter;
             this.riverGain = riverGain;
             this.windGain = windGain;
+            this.rainGain = rainGain;
             this.updateEnvironment(this.env);
         }
         if (!this.birdTimer) this.birdTimer = setTimeout(this.birdLoop, 1000 + Math.random() * 2000);
@@ -528,6 +633,8 @@ class AudioService {
         }
         this.riverGain?.disconnect();
         this.windGain?.disconnect();
+        this.rainGain?.disconnect();
+        this.rainGain = null;
         this.noiseSource = null;
         this.riverFilter = null;
         this.riverGain = null;
@@ -541,7 +648,7 @@ class AudioService {
     private birdLoop = () => {
         this.birdTimer = null;
         if (!this.settings.environment) return;
-        if (this.envReady() && !this.env.isNight && !this.env.isUnderwater) {
+        if (this.envReady() && !this.env.isNight && !this.env.isUnderwater && (this.env.rain ?? 0) < 0.3) {
             const ctx = this.ctx!;
             const out = this.buses.environment!;
             const now = ctx.currentTime;
@@ -575,7 +682,7 @@ class AudioService {
     private cricketLoop = () => {
         this.cricketTimer = null;
         if (!this.settings.environment) return;
-        if (this.envReady() && this.env.isNight && !this.env.isUnderwater) {
+        if (this.envReady() && this.env.isNight && !this.env.isUnderwater && (this.env.rain ?? 0) < 0.3) {
             const ctx = this.ctx!;
             const out = this.buses.environment!;
             const now = ctx.currentTime;

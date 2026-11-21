@@ -38,3 +38,13 @@ export const playerState = {
     impulseX: 0,
     impulseZ: 0,
 };
+
+// Particle bursts (wood chips, splashes, sparkles...). Anything can queue one; the Effects
+// component in the scene drains the queue every frame. Cheap: no React, no store.
+export type FxKind = 'chips' | 'fell' | 'splash' | 'sparkle' | 'confetti' | 'bonk';
+export const fx = {
+    queue: [] as { kind: FxKind; x: number; y: number; z: number; count?: number }[],
+    emit(kind: FxKind, x: number, y: number, z: number, count?: number) {
+        if (this.queue.length < 64) this.queue.push({ kind, x, y, z, count });
+    },
+};

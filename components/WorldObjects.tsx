@@ -4,7 +4,7 @@ import { useSphere, useCylinder, useCompoundBody } from '@react-three/cannon';
 import * as THREE from 'three';
 import { useGameStore, getRiverWidth, calculateTerrainHeight, MAP_SIZE } from '../store';
 import { TreeData, LogData, LooseLogData, BoulderData, PlacedStructure, Blueprint, BlueprintMud } from '../types';
-import { currentWoodchuckPos, liveObjects, readBodyPosition, readBodyTransform } from '../globals';
+import { currentWoodchuckPos, liveObjects, readBodyPosition, readBodyTransform, fx } from '../globals';
 import { multiplayer, logCorrections, outgoingLogPositions } from '../services/multiplayer';
 import { audioService } from '../services/audio';
 
@@ -438,6 +438,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
                                 f.hit = true;
                                 mob.hit(vx / h, vz / h);
                                 audioService.playHit();
+                                fx.emit('bonk', mp.x, mp.y + 0.6, mp.z);
                                 api.velocity.set(vx * 0.15, Math.max(vy, 2), vz * 0.15); // Bounce off and drop
                                 break;
                             }

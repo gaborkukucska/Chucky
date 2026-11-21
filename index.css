@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body, html { margin: 0; padding: 0; height: 100%; height: 100dvh; overflow: hidden; background-color: #87CEEB; overscroll-behavior: none; }
+#root { width: 100%; height: 100%; height: 100dvh; }
+/* Disable selection for game feel */
+.no-select { user-select: none; -webkit-user-select: none; touch-action: none; }
+/* A new challenge sliding in */
+@keyframes fadein { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }

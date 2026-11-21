@@ -5,6 +5,7 @@
 
 import { PlacedStructure, CameraMode, GraphicsQuality } from '../types';
 import type { AudioSettings } from './audio';
+import type { ChallengeStat, ChallengeTallies } from './challenges';
 
 export const SAVE_VERSION = 1;
 export const SAVE_SLOTS = 3;
@@ -46,6 +47,11 @@ export interface SaveData {
     powerups: { treeMs: number; logMs: number; speedMs: number };
     seenPopups: { tree: boolean; log: boolean; speed: boolean };
     runKey?: string;                    // Leaderboard entry this run keeps updating
+    // Chucky's Challenges (missing in older saves: new challenges are handed out)
+    challenges?: { stat: ChallengeStat; target: number; reward: number; progress: number }[];
+    challengesDone?: number;
+    tallies?: Partial<ChallengeTallies>;
+    rainbowFound?: string;
 }
 
 export interface SaveSlotInfo {

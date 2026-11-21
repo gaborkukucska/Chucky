@@ -20,7 +20,13 @@ Welcome to **Chucky the Woodchuck**, a 3D game where you play as Chucky, an indu
 - **Swimming and diving**: Swim across the river and dive for logs and fruit that have sunk. Keep an eye on the breath bar.
 - **Chucky's fact nuggets**: in solo games, Chucky explains the game in a speech bubble when you start, then shares beaver facts and myth-busters as you play. He stays quiet in joint games. The text is in `public/chucky-facts.json`, which you can edit.
 - **Throwing logs**: On land, tap the throw button for a short toss or hold it for a longer, higher throw; release to throw the way Chucky faces. Thrown logs spin randomly. A dotted line shows the flight path while you aim, and every throw flies a little off the aim. A wolf runs off after 2 hits and a bear after 3. A thrown log can be picked up again, but only gives the wood back.
-- **Day and night**: The sun and moon move across the sky. At night wolves and bears come out.
+- **Day and night**: The sun and moon move across the sky. At night wolves and bears come out, and fireflies blink over the grass.
+- **Weather**: clear skies, clouds, rain and thunderstorms with lightning and rolling thunder. The sky greys over, fog rolls in and the grass sways harder in a storm. Rain keeps some of the wolves and bears in their dens.
+  - 🌈 **Rainbows**: when the sun comes out after rain, a rainbow appears, with a pot of treasure where it ends (+100 points, 10 logs and a random magic). Follow the beam of light, or the ⭐ on the minimap.
+  - In joint games everyone sees the same weather, the same lightning and the same rainbow, and each player can take its treasure once.
+- **Chucky's Challenges**: three small goals at a time under your stats, like *Chomp down 5 trees*, *Build something in the river* or *Make it through the night*. Finishing one gives bonus points, and a new, slightly harder one takes its place. Every third challenge also gives a random magic.
+- **Minimap**: the whole map in the bottom-right corner, north up: the river, trees, structures, wolves and bears, magic items, the rainbow treasure and other players. Tap it to make it bigger.
+- **Juicy details**: wood chips fly while you chomp, leaves burst out of falling trees, water splashes when you jump in, fish leap out of the river, and confetti pops when you finish a challenge.
 - **Four camera views**:
   - **3rd person** chase cam behind Chucky.
   - **Overview**.
@@ -72,7 +78,7 @@ Welcome to **Chucky the Woodchuck**, a 3D game where you play as Chucky, an indu
    npm run preview    # serves dist/, including the shared leaderboard
    ```
 
-> An internet connection is needed for the styling (Tailwind CSS is loaded from a CDN) and for the clouds. If the cloud texture can't load, the game simply runs without clouds.
+> No internet connection is needed: the styling (Tailwind CSS) is built into the game and the cloud texture ships in `public/cloud.png`, so it also works on a Wi-Fi without internet.
 
 ### The shared leaderboard
 
@@ -147,6 +153,8 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | **✖️** | Stop building. |
 | **📱** (joint games) | Shows the invite QR code and link again. |
 | **📷** | Switch the camera: 3rd person → Overview → Top-down → Cinematic. |
+| **Minimap** (bottom right) | Tap to make it bigger or smaller. Your arrow points the way Chucky faces. |
+| **🎯 Challenges** (under your stats) | Tap the title to fold the list away or open it again. |
 | **☰** | Menu: Resume, Save, Load, Leaderboard, 🦫 Chucky's tips, Settings, New game. Opening it pauses the game. In a joint game: Resume, Players & invite, Leaderboard, Settings, Leave game (it doesn't pause). |
 | **🛠️** (left edge, `npm run dev` only) | The dev menu: switch power-ups and magic on or off, spawn things to test. |
 | **Building controls** (left edge, while building) | ↻ / ↺ rotate the structure, **✅ PLACE** places it (green = OK, grey = not possible here), ✖ stops building. The label above shows the blueprint, its cost and why a spot isn't allowed. |
@@ -170,7 +178,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 - **Cannon.js** (**@react-three/cannon**): physics for logs, food and structures, running in a web worker
 - **Zustand**: game state
 - **Vite 6**: dev server, build and the shared leaderboard API
-- **Tailwind CSS** (CDN): styling
+- **Tailwind CSS** (built in with PostCSS, no CDN): styling
 
 ## 👩‍💻 Developer notes
 
@@ -187,6 +195,10 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | `components/DevPanel.tsx` | The 🛠️ dev menu (`npm run dev` only): power-up and magic switches and test helpers. |
 | `components/InviteQR.tsx` | The invite QR code for joint games (link with the Wi-Fi address and room code), and reading `?join=` when an invite is opened. |
 | `services/qrcode.ts` | A small QR code maker (byte mode, error correction M, versions 1-10) - no packages needed. |
+| `components/Weather.tsx` + `services/weather.ts` | Weather. `services/weather.ts` works out the weather from the world seed, the day and the time of day (no randomness at run time, so joint games agree), plus lightning strikes and the rainbow's spot. `Weather.tsx` draws it: the overcast sky and fog, clouds, rain, lightning and thunder, the rainbow and its treasure. It keeps `liveWeather` up to date for the lights, sound, grass and HUD. |
+| `components/Effects.tsx` | Particles (wood chips, falling-tree leaves, splashes, sparkles, confetti, bonks), fireflies and jumping fish. Anything can start a burst with `fx.emit()` from `globals.ts`. |
+| `components/Minimap.tsx` | The minimap: the land is drawn once per world, everything else a few times a second. |
+| `services/challenges.ts` | Chucky's Challenges: the list of challenge kinds, how hard each gets and what it pays. |
 | `components/Magic.tsx` | The river piranha (swims, chases, bites), magic items (float, pick up, expire) and the Log Shield (hits animals; rivals' shields hurt you in joint games). |
 | `components/WorldObjects.tsx` | Trees, boulders, loose logs (debris bundles), placed structures (instanced) and the placement preview. |
 | `components/Controls.tsx` | Joystick, dive button, zoom slider, top-right buttons and keyboard/mouse input. It writes to `window.woodchuckInput`. |
@@ -210,6 +222,8 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 - **Cheap big structures.** Each placed structure is one instanced draw call for its logs and one for its mud. Physics uses one box per log for small structures and one box per 4 m × 1 m × 4 m patch of logs for big ones. Demolition drops at most 12 "bundles", each worth several logs.
 - **Sound needs a tap.** Browsers only start audio from a gesture. Every tap, click or key press asks the audio to resume until it runs (a phone's first touch alone isn't enough, and iOS can report "interrupted").
 - **Pausing is real.** Menus pause the game, and resuming shifts every combo and power-up deadline by the paused time.
+- **Weather from the clock.** The weather isn't rolled at run time: it's a function of the world seed, the day and the time of day (3 stretches a day). Lightning strikes come from the seed and the game clock in 3.5 s buckets. A joint game already shares all of these, so the weather needs no network messages.
+- **Shader uniforms.** react-three-fiber copies number uniforms into a `<shaderMaterial>` when it applies props, so `uniforms.x.value = …` later never reaches the GPU. Weather and effect shaders are made with `new THREE.ShaderMaterial(...)` and passed as `material={...}`.
 
 ### Cameras (`CameraController` in `Game3D.tsx`)
 
@@ -226,17 +240,17 @@ The chase cam needs steering controls. With controls relative to a camera that t
 
 ### Graphics quality
 
-| Setting | Grass | Pixel ratio | Sun shadow map | Clouds |
-|---|---|---|---|---|
-| Low | 5×5 tiles (60 m), 1,125 blades | 1 | 512 | off |
-| Medium | 9×9 tiles (108 m), 4,860 blades | up to 1.5 | 1024 | on |
-| High | 11×11 tiles (132 m), 10,890 blades | up to 2 | 2048 | on |
+| Setting | Grass | Pixel ratio | Sun shadow map | Clouds | Raindrops | Fireflies |
+|---|---|---|---|---|---|---|
+| Low | 5×5 tiles (60 m), 1,125 blades | 1 | 512 | off | 700 | off |
+| Medium | 9×9 tiles (108 m), 4,860 blades | up to 1.5 | 1024 | on | 1,600 | 40 |
+| High | 11×11 tiles (132 m), 10,890 blades | up to 2 | 2048 | on | 2,600 | 70 |
 
 Phones and tablets start on Medium and computers on High, until the player picks a setting. Grass is only drawn in the tiles around Chucky (12 m each). When he walks into a new tile, only the row of tiles that came into range is rebuilt, and blades shrink into the ground near the edge. The sun's and moon's shadow maps are only re-rendered while that light is up.
 
 ### Sound
 
-All sound is synthesized in `services/audio.ts` and mixed on three channels: **music**, **environment** and **sfx**. A muted channel stops scheduling sounds, so it costs nothing. The environment channel plays a river (louder near the water, muffled under it), wind, birds by day and crickets at night; `AmbientAudioManager` in `Game3D.tsx` updates it four times a second. Audio pauses while the tab or app is in the background.
+All sound is synthesized in `services/audio.ts` and mixed on three channels: **music**, **environment** and **sfx**. A muted channel stops scheduling sounds, so it costs nothing. The environment channel plays a river (louder near the water, muffled under it), wind, birds by day and crickets at night, and rain and thunder in bad weather (birds and crickets keep quiet in the rain); `AmbientAudioManager` in `Game3D.tsx` updates it four times a second. Audio pauses while the tab or app is in the background.
 
 ### Editing Chucky's facts
 
@@ -261,13 +275,19 @@ Open `public/chucky-facts.json`, change or add entries, and reload the game; the
 - `services/audio.ts` (top): river, wind and underwater sound levels.
 - `store.ts` and `server/multiplayerServer.ts`: knock-out time, throw damage and knock-back, players per room, how long empty rooms are kept, the words used for random game codes.
 - `components/Magic.tsx` (top): piranha speed, chase range, bites and depth; magic item pick-up radius; Log Shield size, spin and damage.
+- `services/weather.ts` (top): how likely each kind of weather is (`WEIGHTS`), stretches per day, how much rain and cloud each brings, and how often lightning strikes. `components/Weather.tsx` (top): raindrop counts per graphics setting, rainbow size, treasure pick-up radius. `store.ts`: `RAINBOW_POINTS`, `RAINBOW_WOOD`, `RAIN_MOB_FACTOR`.
+- `services/challenges.ts`: the challenge kinds (`TEMPLATES`: text, target per tier, how often each comes up, when it may be handed out), rewards and `CHALLENGE_STREAK`.
+- `components/Effects.tsx` (top): what each particle burst looks like (`STYLES`), fireflies per graphics setting, how fish jump.
 
 ### Dev menu
 
 `npm run dev` starts Vite in mode `devtools`, which adds a dashed 🛠️ button on the left of the game screen. It opens a panel where you can:
 - switch each power-up (Mega Chomp, Magnet, Zoomies) and each magic (Log Shield, Triple Chuck, Bubble Breath, Golden Teeth) on or off, with its countdown;
 - drop a magic item in front of Chucky, move the piranha into the river level with him, or spawn a wolf or bear 8 m away (they only stay at night, so a solo game jumps to night);
-- add 50 logs, heal to full, or jump to night or day (solo games only; a joint game's clock comes from the room).
+- add 50 logs, heal to full, or jump to night or day (solo games only; a joint game's clock comes from the room);
+- jump the clock forward to the next rain, storm, rainbow or clear sky (solo games only).
+
+On a dev server the store is also reachable from the browser console as `window.__chuckyStore`, and the weather as `window.__chuckyWeather`.
 
 `npm start` and production builds don't show the button: `App.tsx` renders it behind `import.meta.env.DEV && import.meta.env.MODE === 'devtools'`, so it's left out of the build. Everyone who opens the game from an `npm run dev` server (also on your Wi-Fi) gets the button, so use `npm start` for real games.
 

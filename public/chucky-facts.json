@@ -18,7 +18,8 @@
     { "id": "intro-build", "text": "Tap 🏗️ to build. Structures in the river count as real dams and score the most points." },
     { "id": "intro-dive", "text": "In the river, hold 🤿 to dive for sunken logs and fruit. Keep an eye on my breath bar!" },
     { "id": "intro-food", "text": "Apples and berries heal me. Three berries give me the Zoomies - a burst of speed!" },
-    { "id": "intro-night", "text": "Beware the night: wolves and bears come out. Hold 🪵 and let go to chuck a log at them - a quick tap is a short toss, hold longer for a long lob." }
+    { "id": "intro-night", "text": "Beware the night: wolves and bears come out. Hold 🪵 and let go to chuck a log at them - a quick tap is a short toss, hold longer for a long lob." },
+    { "id": "intro-extras", "text": "Check 🎯 Challenges under your stats for bonus points, and tap the little map to make it bigger. After the rain, look for a rainbow: there's treasure where it ends!" }
   ],
   "facts": [
     { "id": "teeth-orange", "when": { "trees": 1 }, "text": "Fact nugget: beaver teeth are orange! The enamel has iron in it, which makes it extra tough - and our front teeth never stop growing, so we have to keep gnawing." },
@@ -42,6 +43,7 @@
     { "id": "two-species", "when": { "score": 2500 }, "text": "There are two kinds of beaver: the North American beaver and the Eurasian beaver. They look alike, but they can't have babies together." },
     { "id": "piranha-myth", "when": { "bitten": 1 }, "text": "Ouch! Myth buster: real piranhas rarely attack big animals, and the 'skeleton in seconds' stories are mostly movie magic. They live in South America, not in beaver rivers - this one is a game monster!" },
     { "id": "winter-pantry", "text": "Before winter, beavers stash branches underwater next to the lodge - a food pantry they can reach even when the pond freezes over." },
-    { "id": "giant-beaver", "text": "Long ago, a giant beaver about the size of a black bear lived in North America. Imagine the size of its dams!" }
+    { "id": "giant-beaver", "text": "Long ago, a giant beaver about the size of a black bear lived in North America. Imagine the size of its dams!" },
+    { "id": "storm-repairs", "text": "After a big storm, the river rises and can punch holes in a dam. Beavers hurry out to patch the leaks with fresh sticks and mud." }
   ]
 }

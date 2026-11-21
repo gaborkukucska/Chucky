@@ -1,7 +1,7 @@
 import React, { Suspense, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Physics, useSphere } from '@react-three/cannon';
-import { Sky, Stars, Cloud, Sparkles } from '@react-three/drei';
+import { Sky, Stars, Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore, calculateTerrainHeight, isNightTime, MAP_SIZE, getRiverX, getRiverWidth, throwLaunch, throwPowerForCharge } from '../store';
 import { facts } from '../services/facts';
@@ -12,6 +12,8 @@ import { Boulder, Tree, Log, LooseLog, PlacedStructureRenderer } from './WorldOb
 import { Woodchuck } from './Woodchuck';
 import { RemotePlayers, MultiplayerSync } from './RemotePlayers';
 import { Piranhas, MagicItems, LogShield } from './Magic';
+import { WeatherSystem, WeatherClouds, liveWeather } from './Weather';
+import { Effects } from './Effects';
 import { multiplayer } from '../services/multiplayer';
 import { FoodData, MobData, GraphicsQuality } from '../types';
 import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, throwAim } from '../globals';
@@ -216,6 +218,7 @@ const DestructionManager = () => {
         s.checkPowerups();
         s.checkCombo();        // Combo expiry lives in the store now (was driven by the HUD)
         s.syncLeaderboard();   // Throttled: only writes when the run's numbers changed
+        s.checkChallenges();   // Chucky's Challenges: pay out finished ones, hand out new ones
     });
     return null;
 };
@@ -231,6 +234,7 @@ const DayNightCycle = ({ shadowMapSize }: { shadowMapSize: number }) => {
     const sunRef = useRef<THREE.DirectionalLight>(null);
     const moonLightRef = useRef<THREE.DirectionalLight>(null);
     const moonRef = useRef<THREE.Mesh>(null);
+    const starsRef = useRef<THREE.Group>(null);
     const sunTarget = useMemo(() => new THREE.Object3D(), []);
     const moonTarget = useMemo(() => new THREE.Object3D(), []);
 
@@ -261,8 +265,11 @@ const DayNightCycle = ({ shadowMapSize }: { shadowMapSize: number }) => {
         const sY = Math.sin(theta) * SUN_DISTANCE;
         const sZ = -50;
 
-        const sunIntensity = Math.max(0, Math.sin(theta)) * 1.5;
-        const moonIntensity = Math.max(0, -Math.sin(theta)) * 0.5;
+        // Clouds dim the sun and moon; lightning lights everything up for a moment
+        const overcast = Math.max(0, Math.min(1, (liveWeather.cloud - 0.25) / 0.75));
+        const dim = 1 - overcast * 0.6 - liveWeather.storm * 0.15;
+        const sunIntensity = Math.max(0, Math.sin(theta)) * 1.5 * dim;
+        const moonIntensity = Math.max(0, -Math.sin(theta)) * 0.5 * dim;
 
         const uniforms = skyRef.current?.material?.uniforms;
         if (uniforms?.sunPosition) uniforms.sunPosition.value.set(sX, sY, sZ);
@@ -287,21 +294,23 @@ const DayNightCycle = ({ shadowMapSize }: { shadowMapSize: number }) => {
         }
         if (moonRef.current) {
             moonRef.current.position.set(-sX * 4, -sY * 4, 0);
+            moonRef.current.visible = overcast < 0.8;
         }
+        if (starsRef.current) starsRef.current.visible = overcast < 0.6;
         if (ambientRef.current) {
-            ambientRef.current.intensity = 0.4 + sunIntensity * 0.2 + moonIntensity * 0.2;
+            ambientRef.current.intensity = 0.4 + sunIntensity * 0.2 + moonIntensity * 0.2 + liveWeather.flash * 1.6;
         }
     });
 
     return (
         <>
             <Sky ref={skyRef} sunPosition={[SUN_DISTANCE, 0, -50]} turbidity={0.5} rayleigh={0.5} mieCoefficient={0.005} mieDirectionalG={0.8} />
-            {isNight && <Stars radius={150} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />}
+            {isNight && <group ref={starsRef}><Stars radius={150} depth={50} count={5000} factor={4} saturation={0} fade speed={1} /></group>}
 
             {/* Moon - orbits opposite the sun, far away */}
             <mesh ref={moonRef}>
                 <sphereGeometry args={[20, 32, 32]} />
-                <meshStandardMaterial color="#DDDDDD" emissive="#222222" />
+                <meshStandardMaterial color="#DDDDDD" emissive="#222222" fog={false} />
             </mesh>
 
             <ambientLight ref={ambientRef} intensity={0.5} />
@@ -605,11 +614,13 @@ const Grass = ({ quality }: { quality: GraphicsQuality }) => {
         time: { value: 0 },
         playerPos: { value: new THREE.Vector3() },
         fadeRadius: { value: fadeRadius },
+        wind: { value: 1 },
     }), [fadeRadius]);
 
     useFrame((state) => {
         uniforms.time.value = state.clock.elapsedTime;
         uniforms.playerPos.value.copy(currentWoodchuckPos);
+        uniforms.wind.value = 1 + liveWeather.storm * 1.8 + liveWeather.rain * 0.5;
 
         const mesh = meshRef.current;
         const p = currentWoodchuckPos;
@@ -645,10 +656,12 @@ const Grass = ({ quality }: { quality: GraphicsQuality }) => {
         shader.uniforms.time = uniforms.time;
         shader.uniforms.playerPos = uniforms.playerPos;
         shader.uniforms.fadeRadius = uniforms.fadeRadius;
+        shader.uniforms.wind = uniforms.wind;
         shader.vertexShader = `
             uniform float time;
             uniform vec3 playerPos;
             uniform float fadeRadius;
+            uniform float wind;
             ${shader.vertexShader}
         `.replace(
             '#include <begin_vertex>',
@@ -658,10 +671,12 @@ const Grass = ({ quality }: { quality: GraphicsQuality }) => {
             float dist = distance(worldPos.xz, playerPos.xz);
 
             // Shrink into the ground towards the edge of the grass window
-            trsformed *= 1.0 - smoothstep(fadeRadius * 0.75, fadeRadius, dist);
+            transformed *= 1.0 - smoothstep(fadeRadius * 0.75, fadeRadius, dist);
+            // ... and right in front of the camera, where a blade would fill the screen
+            transformed *= smoothstep(2.5, 6.5, distance(worldPos.xyz, cameraPosition));
 
-            // Sway (only the top of the blade moves)
-            float sway = sin(time * 2.0 + worldPos.x * 0.5 + worldPos.z * 0.5) * 0.2;
+            // Sway (only the top of the blade moves; harder in a storm)
+            float sway = sin(time * (2.0 + wind) + worldPos.x * 0.5 + worldPos.z * 0.5) * 0.2 * wind;
             transformed.x += sway * uv.y;
 
             // Push away from Chucky
@@ -807,6 +822,7 @@ const AmbientAudioManager = () => {
             riverDistance: Math.max(0, Math.abs(p.x - getRiverX(p.z)) - getRiverWidth(p.z)),
             isNight: isNightTime(s.timeOfDay),
             isUnderwater: s.isInWater && p.y < WATER_LEVEL - 0.2,
+            rain: s.phase === 'PLAYING' ? liveWeather.rain : 0,
         });
     });
     return null;
@@ -857,11 +873,12 @@ const GameScene = () => {
                 <FactsManager />
                 <DayNightCycle shadowMapSize={qualitySettings.shadowMap} />
 
+                {/* Weather: overcast sky, fog, clouds (Medium/High), rain, lightning, rainbows */}
+                <WeatherSystem quality={quality} />
                 {qualitySettings.clouds && (
                     <OptionalBoundary>
                         <Suspense fallback={null}>
-                            <Cloud opacity={0.5} speed={0.4} bounds={[10, 1.5, 1.5]} segments={20} position={[0, 20, -10]} />
-                            <Cloud opacity={0.3} speed={0.1} bounds={[50, 20, 20]} segments={10} position={[40, 25, -50]} />
+                            <WeatherClouds />
                         </Suspense>
                     </OptionalBoundary>
                 )}
@@ -891,6 +908,7 @@ const GameScene = () => {
                 <MagicItems />
                 <LogShield />
                 <CameraController />
+                <Effects quality={quality} />
 
                 {/* Effects */}
                 <Sparkles count={50} scale={12} size={4} speed={0.4} opacity={0.5} color="#FFD700" position={[0, 5, 0]} />
