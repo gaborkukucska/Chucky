@@ -25,6 +25,10 @@ const DECELERATION = 12;     // 1/s - how quickly Chucky stops when input is rel
 const RIVER_DRIFT = 0.35;    // Fraction of the river flow applied while swimming
 const TURN_RATE = 10;        // 1/s - how quickly the model turns to face the movement direction
 const STEER_RATE = 1.8;      // rad/s - max turning speed in the 3rd-person camera (only used there)
+// 3rd-person steering eases in, but stops almost at once when you let go, so it's easy to
+// stop Chucky facing exactly the way you want (1/s: bigger = quicker)
+const STEER_RAMP_UP = 5;     // ~0.2 s to full turning speed
+const STEER_RAMP_DOWN = 22;  // ~0.05 s to stop (also when switching direction)
 const BACKWARD_SPEED = 0.5;  // Walking backwards (3rd-person camera) is slower
 const NO_INPUT = { x: 0, y: 0, isBuilding: false, dive: false }; // Knocked out (joint games)
 const VERTICAL_SMOOTHING = 15; // 1/s - terrain following / bobbing smoothing
@@ -188,6 +192,7 @@ export const Woodchuck = () => {
     const internalPos = useRef<[number, number, number]>(getSpawnPoint());
     const velocity = useRef({ x: 0, z: 0 });
     const currentRotationY = useRef(SPAWN_FACING);
+    const steerVel = useRef(0); // rad/s, eased towards what the stick/keys ask for
     const visualOffsetY = useRef(0.4);
     const lastChopSound = useRef(0);
     const lastChips = useRef(0);
@@ -301,12 +306,19 @@ export const Woodchuck = () => {
             const steer = Math.abs(input.x) > 0.1 ? (input.x / axisMax) * mag : 0;
             const throttle = Math.abs(input.y) > 0.1 ? (-input.y / axisMax) * mag : 0; // Stick up = forward
             // Response curve: small pushes turn gently, a full push turns at STEER_RATE
-            currentRotationY.current -= steer * Math.abs(steer) * STEER_RATE * delta;
+            const wanted = -steer * Math.abs(steer) * STEER_RATE;
+            const speedingUp = Math.sign(wanted) === Math.sign(steerVel.current) && Math.abs(wanted) > Math.abs(steerVel.current);
+            const speedingUpFromRest = steerVel.current === 0 && wanted !== 0;
+            const ramp = speedingUp || speedingUpFromRest ? STEER_RAMP_UP : STEER_RAMP_DOWN;
+            steerVel.current += (wanted - steerVel.current) * (1 - Math.exp(-ramp * delta));
+            if (wanted === 0 && Math.abs(steerVel.current) < 0.02) steerVel.current = 0;
+            currentRotationY.current += steerVel.current * delta;
             const dir = throttle < 0 ? -1 : 1;
             moveDir.set(Math.sin(currentRotationY.current) * dir, 0, Math.cos(currentRotationY.current) * dir);
             inputMag = Math.min(1, Math.abs(throttle)) * (throttle < 0 ? BACKWARD_SPEED : 1);
             isMoving = throttle !== 0;
         } else {
+            steerVel.current = 0;
             inputMag = Math.min(1, Math.hypot(input.x, input.y));
             isMoving = inputMag > 0.1;
 
@@ -329,6 +341,7 @@ export const Woodchuck = () => {
             }
         }
         playerState.facing = currentRotationY.current;
+        playerState.steering = steerVel.current;
 
         // --- State ---
         const terrainHere = calculateTerrainHeight(x, z);

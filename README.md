@@ -274,6 +274,7 @@ Open `public/chucky-facts.json`, change or add entries, and reload the game; the
 - `Game3D.tsx`: `QUALITY_SETTINGS` and `GRASS_QUALITY` (what each graphics setting does), `GRASS_TILE`, and the camera constants (`CHASE`, `OVERVIEW`, `TOP_DOWN_VIEW`, `CINEMATIC_VIEW`).
 - `services/audio.ts` (top): river, wind and underwater sound levels.
 - `store.ts` and `server/multiplayerServer.ts`: knock-out time, throw damage and knock-back, players per room, how long empty rooms are kept, the words used for random game codes.
+- `components/Woodchuck.tsx` (top): `STEER_RATE` (3rd-person turning speed), `STEER_RAMP_UP` and `STEER_RAMP_DOWN` (how fast turning starts and stops). `components/Game3D.tsx`: `CHASE.yawRate` (camera swing while turning) and `CHASE.settleRate` (lining up once you stop).
 - `components/Magic.tsx` (top): piranha speed, chase range, bites and depth; magic item pick-up radius; Log Shield size, spin and damage.
 - `services/weather.ts` (top): how likely each kind of weather is (`WEIGHTS`), stretches per day, how much rain and cloud each brings, and how often lightning strikes. `components/Weather.tsx` (top): raindrop counts per graphics setting, rainbow size, treasure pick-up radius. `store.ts`: `RAINBOW_POINTS`, `RAINBOW_WOOD`, `RAIN_MOB_FACTOR`.
 - `services/challenges.ts`: the challenge kinds (`TEMPLATES`: text, target per tier, how often each comes up, when it may be handed out), rewards and `CHALLENGE_STREAK`.
@@ -287,7 +288,7 @@ Open `public/chucky-facts.json`, change or add entries, and reload the game; the
 - add 50 logs, heal to full, or jump to night or day (solo games only; a joint game's clock comes from the room);
 - jump the clock forward to the next rain, storm, rainbow or clear sky (solo games only).
 
-On a dev server the store is also reachable from the browser console as `window.__chuckyStore`, and the weather as `window.__chuckyWeather`.
+On a dev server the store is also reachable from the browser console as `window.__chuckyStore`, the weather as `window.__chuckyWeather`, and Chucky's facing and turning speed as `window.__chuckyPlayer`.
 
 `npm start` and production builds don't show the button: `App.tsx` renders it behind `import.meta.env.DEV && import.meta.env.MODE === 'devtools'`, so it's left out of the build. Everyone who opens the game from an `npm run dev` server (also on your Wi-Fi) gets the button, so use `npm start` for real games.
 

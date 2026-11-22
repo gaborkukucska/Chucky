@@ -2,6 +2,15 @@
 
 All notable changes to Chucky the Woodchuck. Newest first.
 
+## 2026-11-22: Snappier steering (round 22)
+
+- **3rd-person steering stops when you let go.** Turning still eases in (about 0.2 s to full speed), but it now stops in about 0.05 s when you let go or switch direction. A quick tap gives a small, exact turn.
+- **The chase camera settles faster.** It still swings round lazily while Chucky turns, but once he stops it lines up behind him about three times faster, so the view no longer drifts past the way you were aiming.
+- Tuning: `STEER_RAMP_UP` and `STEER_RAMP_DOWN` (top of `components/Woodchuck.tsx`), and `CHASE.yawRate` and `CHASE.settleRate` in `components/Game3D.tsx`.
+- On a dev server, `window.__chuckyPlayer` shows Chucky's facing and turning speed live.
+
+Files: `components/Woodchuck.tsx`, `components/Game3D.tsx`, `globals.ts`, `store.ts`, `README.md`, `CHANGELOG.md`.
+
 ## 2026-11-22: Weather, challenges, a minimap and a lot of polish (round 21)
 
 **After pulling this update, run `npm install`** (Tailwind is now built into the game).

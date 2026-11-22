@@ -2135,4 +2135,4 @@ export const useGameStore = create<GameState>((set, get) => ({
 audioService.applySettings(useGameStore.getState().audioSettings);
 
 // Dev servers only: reach the store from the browser console (and from automated play-tests)
-if (import.meta.env.DEV) (window as any).__chuckyStore = useGameStore;
+if (import.meta.env.DEV) Object.assign(window as any, { __chuckyStore: useGameStore, __chuckyPlayer: playerState });

@@ -34,6 +34,7 @@ export const throwAim = {
 // Per-frame player state that must not live in the store
 export const playerState = {
     facing: Math.PI / 2,
+    steering: 0,       // rad/s Chucky is turning at (3rd-person steering); the camera settles fast at 0
     // Knock-back from a thrown log (joint games), added to Chucky's velocity next frame
     impulseX: 0,
     impulseZ: 0,

@@ -83,7 +83,9 @@ class OptionalBoundary extends React.Component<{ children?: React.ReactNode }, {
 //   FOLLOW    "Overview"   - high three-quarter view from the south, world-aligned
 //   TOP_DOWN  "Top-down"   - map view from straight above, north up
 //   CINEMATIC "Cinematic"  - slow, low orbit around Chucky
-const CHASE = { distance: 8, height: 3.5, lookAhead: 4, lookHeight: 1.2, posRate: 8, yawRate: 3.5, minDistance: 2.8 };
+// yawRate: how fast the camera swings round while Chucky turns; settleRate: how fast it lines
+// up behind him once he stops turning (quicker, so the view doesn't drift past where you aimed)
+const CHASE = { distance: 8, height: 3.5, lookAhead: 4, lookHeight: 1.2, posRate: 8, yawRate: 3.5, settleRate: 10, minDistance: 2.8 };
 const OVERVIEW = { back: 26, height: 18, posRate: 3 };
 const TOP_DOWN_VIEW = { height: 42, back: 2, posRate: 3 };
 const CINEMATIC_VIEW = { radius: 20, height: 6, orbitSpeed: 0.12, posRate: 2 };
@@ -127,7 +129,8 @@ const CameraController = () => {
         let rate: number;
         if (mode === 'BEHIND') {
             // Yaw eases towards Chucky's facing, so the camera swings round behind him
-            chaseYaw.current += wrapAngle(playerState.facing - chaseYaw.current) * (1 - Math.exp(-CHASE.yawRate * delta));
+            const yawRate = Math.abs(playerState.steering) > 0.05 ? CHASE.yawRate : CHASE.settleRate;
+            chaseYaw.current += wrapAngle(playerState.facing - chaseYaw.current) * (1 - Math.exp(-yawRate * delta));
             const sin = Math.sin(chaseYaw.current);
             const cos = Math.cos(chaseYaw.current);
             const dist = CHASE.distance * zoom;
