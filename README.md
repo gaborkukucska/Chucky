@@ -16,6 +16,12 @@ Welcome to **Chucky the Woodchuck**, a 3D game where you play as Chucky, an indu
     - ✨ **Triple Chuck** (25 s): every throw launches three logs.
     - 🫧 **Bubble Breath** (30 s): endless air underwater.
     - 🌟 **Golden Teeth** (30 s): trees drop twice the logs.
+- 🌊 **A living river**: dams really hold the water back. Build across the river and the water rises behind your dam into a pond, while the river below it runs lower. The more of the river's width and depth a dam blocks, the higher the pond (up to 2.8 m), and side-by-side structures add up. The river flows south, so a pond backs up to the north. Water pours over the dam with spray at the bottom, a pond fills over a few seconds, and it drains again if the dam is demolished.
+  - **Floods and wetlands**: a pond that rises above the banks spills over the low meadows beside the river. That's a wetland: shallow water with grass poking through. Wolves and bears won't wade in, and one caught by a rising flood is washed away, so a flood can protect your patch.
+  - In joint games everyone's river is the same: it comes from the structures, which everyone shares.
+- 🐦 **Magpies**: when a wetland appears, magpies move in and nest on a dead tree at its edge. More wetland means a bigger flock (2 to 8). By day they sit on their nest, warble and fly laps over the water. **At night they guard you** while you're near their wetland, swooping any wolf or bear that comes close. A swoop counts as a hit, like a log. Anywhere, any time, **🐦 Magpie Call (Q)** brings the whole flock: they swoop everything nearby, then circle over you for 12 seconds, swooping anything else that comes. It recharges in 25 seconds.
+- 💦 **Tail Slap (E)**: beavers slap their tails on the water to warn of danger, and Chucky's slap sends a wave rolling out across the water. It washes away wolves, bears and the piranha it reaches: 15 m when you're swimming, 9 m from the water's edge. Each counts as a hit. It recharges in 7 seconds.
+- 🐺🐻 **Wolves and bears that hunt differently**: a wolf lopes up and **circles** you, sizing you up, then suddenly **lunges**. Back off, and it circles again. It howls when it first picks up your scent, and its eyes glow gold in the dark. A bear lumbers up, **rears onto its hind legs and roars**: that's your warning. Then it **charges in a straight line** and can't turn, so step aside! Afterwards it stands panting. Both have proper legs, tails and heads now, and they run, trot and bound.
 - **River piranha**: one lurks in the river and bites when you swim near it. Two log hits chase it off for 50 points and a magic item, and another turns up a few minutes later.
 - **Swimming and diving**: Swim across the river and dive for logs and fruit that have sunk. Keep an eye on the breath bar.
 - **Chucky's fact nuggets**: in solo games, Chucky explains the game in a speech bubble when you start, then shares beaver facts and myth-busters as you play. He stays quiet in joint games. The text is in `public/chucky-facts.json`, which you can edit.
@@ -132,8 +138,9 @@ When you start your first game, Chucky explains the basics in a speech bubble (N
 2. **Collect logs**: walk over logs to pick them up. Picking logs up quickly builds your combo.
 3. **Build**: tap 🏗️, pick an unlocked blueprint and place it. Dams are built across your view and curve away from you, so face upstream to dam the river. Build lodges in the shallows: the entrance tunnels sit at the bottom, so they end up under water while the dome rises out of it. The see-through preview is cyan when the spot is valid and red when it isn't (not enough wood, too close to another structure, or off the map).
 4. **Eat**: apples heal 20 and berries heal 10 (up to 200% health). Every 3rd berry gives you Zoomies.
-5. **Survive the night**: wolves and bears hurt. Stay clear, head for the water, or throw logs at them (🪵): a wolf runs off after 2 hits (+20 points) and a bear after 3 (+40). Chased-off animals sometimes leave a magic item behind (see the features above).
-6. **Mind the piranha**: there's one in the river. It chases and bites you while you swim. Two log hits chase it off: throw from the bank as it comes close, or use a Log Shield.
+5. **Survive the night**: wolves and bears hurt. Stay clear, head for the water, or throw logs at them (🪵): a wolf runs off after 2 hits (+20 points) and a bear after 3 (+40). From the water, a 💦 Tail Slap (E) washes them back. Watch a wolf circling you: it's about to lunge. When a bear rears up, step out of its path. Chased-off animals sometimes leave a magic item behind (see the features above).
+6. **Dam the river**: build right across the river (face upstream, north) and a pond rises behind your dam. Flood the low meadows beside it and magpies move in. They guard you at night near their wetland, and 🐦 (Q) calls them anywhere.
+7. **Mind the piranha**: there's one in the river. It chases and bites you while you swim. Two log hits chase it off: throw from the bank as it comes close, or use a Log Shield.
 
 If the game runs slowly on your phone, open ☰ → ⚙️ Settings and pick **Low** graphics. Settings is also on the start screen.
 
@@ -147,6 +154,7 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 |---|---|
 | **Joystick** (bottom middle) | **3rd person view:** up/down walks forward/back, left/right turns Chucky (the camera stays behind him). **Other views:** push where you want to go on the screen. |
 | **🤿 Dive** (bottom left, in water) | Hold to dive, release to float back up. Watch the breath bar. |
+| **💦 Tail Slap / 🐦 Magpies** (next to 🪵 / 🤿; above them on a tall screen) | 💦 sends a wave across the water (only in or right by the water; dimmed elsewhere). 🐦 calls your magpies (locked until a wetland has some). A dark sweep shows the recharge. |
 | **🪵 Throw** (bottom left, on land, where 🤿 is in the water) | **Tap** for a short toss (about 4 m, good for a wolf right in front of you), or **hold** to throw faster and higher: 1.2 seconds is a lob of about 55 m. While you hold, a dotted line and a ring show where the log will land. **Release** to throw. Costs 1 log; you can throw about every 0.6 seconds. Each throw flies a little off the aim and spins randomly. |
 | **Zoom slider** (right edge) | Slide up to move the camera closer, down to move it further away. Double-tap the slider to reset. |
 | **🏗️ / ✅ / 💥** (top right) | Opens the build menu. Becomes ✅ to **place** while building. Next to a structure it becomes 💥: **hold** it to demolish (you get 80% of the logs back). |
@@ -167,7 +175,9 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | **Space** | In the water: hold to dive. On land: hold to aim a throw, release to throw |
 | **F** | Hold to aim a throw, release to throw |
 | **Mouse wheel** | Zoom the camera |
-| **R** or **E** / **Q** | Rotate the structure while building (Q turns the other way) |
+| **E** | 💦 Tail Slap (in or right by the water) |
+| **Q** | 🐦 Magpie Call (once magpies nest at a wetland) |
+| **R** or **E** / **Q** | While building: rotate the structure (Q turns the other way) |
 | **Enter** | Place the structure |
 | **Esc** | Open/close the menu, or close the build menu |
 
@@ -190,7 +200,11 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 | `store.ts` | All game state and rules (Zustand): world generation (seeded terrain, trees, boulders), spawn points, chomping, logs, combos, power-ups and magic, the piranha, building, demolition, saving and loading, leaderboard sync, camera mode and zoom, the dev-menu actions. Gameplay tuning constants are at the top of the file. |
 | `types.ts` | Shared types: trees, logs, structures and blueprints (logs, sticks, mud), magic items, piranhas. |
 | `components/Woodchuck.tsx` | The player: spawning (river bank, or the team's corner in joint games), movement, collisions, swimming and diving, chomping, the placement preview, and the model. |
-| `components/Terrain.tsx` + `components/Water.tsx` | The ground (mesh + physics heightfield, rebuilt for each world from the seeded terrain in `store.ts`) and the water surface. |
+| `components/Terrain.tsx` + `components/Water.tsx` | The ground (mesh + physics heightfield, rebuilt for each world from the seeded terrain in `store.ts`) and the water surface: a grid that follows the river's height (ponds, the step over a dam), with spray below dams. |
+| `services/hydrology.ts` | The living river: which structures block the river and how much, the water height along the river (ponds behind dams, the lower river below them), how it fills and drains, the wetlands and how many magpies they hold. Use `getWaterLevel(x, z)` rather than a fixed water level. |
+| `components/Mobs.tsx` | Wolves and bears: their models, how each hunts (circling and lunging, rearing and charging), animation, bites, and being washed away by deep water. |
+| `components/Magpies.tsx` | Magpies: nests at wetlands, the flock (perching, laps, guarding at night, the Magpie Call, swoops). |
+| `components/TailSlap.tsx` | The Tail Slap wave: the ring and crest, spray, and washing away whatever it reaches. |
 | `components/Game3D.tsx` | The scene: canvas, cameras, day/night lighting, time and destruction managers, food, mobs, grass, graphics quality, environment-sound updates. |
 | `components/DevPanel.tsx` | The 🛠️ dev menu (`npm run dev` only): power-up and magic switches and test helpers. |
 | `components/InviteQR.tsx` | The invite QR code for joint games (link with the Wi-Fi address and room code), and reading `?join=` when an invite is opened. |
@@ -223,6 +237,8 @@ Your score unlocks bigger blueprints. The run lasts until your health runs out. 
 - **Sound needs a tap.** Browsers only start audio from a gesture. Every tap, click or key press asks the audio to resume until it runs (a phone's first touch alone isn't enough, and iOS can report "interrupted").
 - **Pausing is real.** Menus pause the game, and resuming shifts every combo and power-up deadline by the paused time.
 - **Weather from the clock.** The weather isn't rolled at run time: it's a function of the world seed, the day and the time of day (3 stretches a day). Lightning strikes come from the seed and the game clock in 3.5 s buckets. A joint game already shares all of these, so the weather needs no network messages.
+- **Water height from the dams.** The river has no fixed water level any more: `services/hydrology.ts` keeps one height per metre along the river (the pond is flat), which eases towards what the dams ask for, plus how far from the river raised water can spread. Swimming, floating logs, mobs, the piranha, fish, particles, the camera and the minimap all ask `getWaterLevel(x, z)`. It comes from the placed structures alone, so joint games agree. Dams that are still underwater count too: how much of the river's width and depth they block sets the rise.
+- **Abilities through a queue.** A button or key calls `store.tailSlap()` / `store.callMagpies()`, which check the ability can be used, start its cooldown and push an event onto `abilityEvents` (`globals.ts`). The scene (`TailSlap.tsx`, `Magpies.tsx`) picks it up. Wolves, bears and the piranha register a `hit` (logs, the Log Shield, swoops) and a `shove` (waves) in `liveObjects.mobs`.
 - **Shader uniforms.** react-three-fiber copies number uniforms into a `<shaderMaterial>` when it applies props, so `uniforms.x.value = …` later never reaches the GPU. Weather and effect shaders are made with `new THREE.ShaderMaterial(...)` and passed as `material={...}`.
 
 ### Cameras (`CameraController` in `Game3D.tsx`)
@@ -276,6 +292,8 @@ Open `public/chucky-facts.json`, change or add entries, and reload the game; the
 - `store.ts` and `server/multiplayerServer.ts`: knock-out time, throw damage and knock-back, players per room, how long empty rooms are kept, the words used for random game codes.
 - `components/Woodchuck.tsx` (top): `STEER_RATE` (3rd-person turning speed), `STEER_RAMP_UP` and `STEER_RAMP_DOWN` (how fast turning starts and stops). `components/Game3D.tsx`: `CHASE.yawRate` (camera swing while turning) and `CHASE.settleRate` (lining up once you stop).
 - `components/Magic.tsx` (top): piranha speed, chase range, bites and depth; magic item pick-up radius; Log Shield size, spin and damage.
+- `services/hydrology.ts` (top): how high a dam can raise the water (`MAX_RISE`), pond length, how much lower the river runs below a dam, how far a flood spreads (`FLOOD_REACH`), fill and drain speeds; at the bottom, how many magpies a wetland holds. `store.ts`: `SLAP_COOLDOWN`, `MAGPIE_COOLDOWN`. `components/TailSlap.tsx`: wave reach and speed. `components/Magpies.tsx`: guard range, escort time, swoops per run, flight speeds.
+- `components/Mobs.tsx` (top): bite damage, hits to chase off, how deep water must be to wash a mob away, and the `WOLF` and `BEAR` hunting numbers (circling radius and time, lunge speed, rearing time, charge speed and length).
 - `services/weather.ts` (top): how likely each kind of weather is (`WEIGHTS`), stretches per day, how much rain and cloud each brings, and how often lightning strikes. `components/Weather.tsx` (top): raindrop counts per graphics setting, rainbow size, treasure pick-up radius. `store.ts`: `RAINBOW_POINTS`, `RAINBOW_WOOD`, `RAIN_MOB_FACTOR`.
 - `services/challenges.ts`: the challenge kinds (`TEMPLATES`: text, target per tier, how often each comes up, when it may be handed out), rewards and `CHALLENGE_STREAK`.
 - `components/Effects.tsx` (top): what each particle burst looks like (`STYLES`), fireflies per graphics setting, how fish jump.
@@ -286,9 +304,10 @@ Open `public/chucky-facts.json`, change or add entries, and reload the game; the
 - switch each power-up (Mega Chomp, Magnet, Zoomies) and each magic (Log Shield, Triple Chuck, Bubble Breath, Golden Teeth) on or off, with its countdown;
 - drop a magic item in front of Chucky, move the piranha into the river level with him, or spawn a wolf or bear 8 m away (they only stay at night, so a solo game jumps to night);
 - add 50 logs, heal to full, or jump to night or day (solo games only; a joint game's clock comes from the room);
-- jump the clock forward to the next rain, storm, rainbow or clear sky (solo games only).
+- jump the clock forward to the next rain, storm, rainbow or clear sky (solo games only);
+- fill (or drain) ponds at once instead of waiting a few seconds.
 
-On a dev server the store is also reachable from the browser console as `window.__chuckyStore`, the weather as `window.__chuckyWeather`, and Chucky's facing and turning speed as `window.__chuckyPlayer`.
+On a dev server the store is also reachable from the browser console as `window.__chuckyStore`, the weather as `window.__chuckyWeather`, Chucky's facing and turning speed as `window.__chuckyPlayer`, live physics objects as `window.__chuckyLive`, the river as `window.__chuckyRiver`, the magpies as `window.__chuckyMagpies`, and the Tail Slap's wave speed as `window.__chuckyWaves`.
 
 `npm start` and production builds don't show the button: `App.tsx` renders it behind `import.meta.env.DEV && import.meta.env.MODE === 'devtools'`, so it's left out of the build. Everyone who opens the game from an `npm run dev` server (also on your Wi-Fi) gets the button, so use `npm start` for real games.
 

@@ -27,6 +27,7 @@ const HELPERS: { action: DevAction; label: string; soloOnly?: boolean }[] = [
     { action: 'storm', label: '⛈️ Next storm', soloOnly: true },
     { action: 'rainbow', label: '🌈 Next rainbow', soloOnly: true },
     { action: 'clear', label: '☀️ Next clear', soloOnly: true },
+    { action: 'fillPonds', label: '🌊 Fill ponds now' },
 ];
 
 const secs = (end: number) => Math.max(0, Math.ceil((end - Date.now()) / 1000));

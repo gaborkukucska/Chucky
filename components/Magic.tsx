@@ -11,6 +11,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGameStore, calculateTerrainHeight, getRiverX, getRiverWidth, MAGIC_INFO, MAGIC_ITEM_LIFETIME } from '../store';
 import { currentWoodchuckPos, liveObjects, readBodyPosition, fx } from '../globals';
+import { getWaterLevel } from '../services/hydrology';
 import { remotePlayers } from '../services/multiplayer';
 import { audioService } from '../services/audio';
 import { MagicItemData, MagicType, PiranhaData } from '../types';
@@ -83,17 +84,20 @@ const PiranhaFish = React.memo(({ data }: { data: PiranhaData }) => {
     useEffect(() => {
         const group = groupRef.current;
         if (!group) return;
+        const hit = (dirX: number, dirZ: number, push = 1.5) => {
+            const st = sim.current;
+            const now = Date.now();
+            st.stunUntil = now + PIRANHA_STUN_TIME;
+            st.flashUntil = now + 250;
+            swimBy(st.pos, dirX * push, dirZ * push);
+            st.hitsLeft -= 1;
+            if (st.hitsLeft <= 0) useGameStore.getState().defeatPiranha(data.id, [st.pos.x, st.pos.y, st.pos.z]);
+        };
         liveObjects.mobs.set(data.id, {
             object: group,
-            hit: (dirX: number, dirZ: number) => {
-                const st = sim.current;
-                const now = Date.now();
-                st.stunUntil = now + PIRANHA_STUN_TIME;
-                st.flashUntil = now + 250;
-                swimBy(st.pos, dirX * 1.5, dirZ * 1.5);
-                st.hitsLeft -= 1;
-                if (st.hitsLeft <= 0) useGameStore.getState().defeatPiranha(data.id, [st.pos.x, st.pos.y, st.pos.z]);
-            },
+            type: 'piranha',
+            hit,
+            shove: (dirX, dirZ, power) => hit(dirX, dirZ, 1.5 + power * 4), // A tail-slap wave tumbles it away
         });
         return () => { liveObjects.mobs.delete(data.id); };
     }, [data.id]);
@@ -144,8 +148,9 @@ const PiranhaFish = React.memo(({ data }: { data: PiranhaData }) => {
 
             // Depth: under the surface, above the bed; follows Chucky's depth when chasing
             const bed = calculateTerrainHeight(st.pos.x, st.pos.z);
-            const wantY = chasing ? me.y : WATER_LEVEL - PIRANHA_CRUISE_DEPTH;
-            const targetY = clamp(wantY, bed + 0.4, WATER_LEVEL - 0.3);
+            const surface = getWaterLevel(st.pos.x, st.pos.z);
+            const wantY = chasing ? me.y : surface - PIRANHA_CRUISE_DEPTH;
+            const targetY = clamp(wantY, bed + 0.4, surface - 0.3);
             st.pos.y += (targetY - st.pos.y) * (1 - Math.exp(-3 * delta));
         }
 

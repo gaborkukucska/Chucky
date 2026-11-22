@@ -7,8 +7,24 @@ export const currentWoodchuckPos = new THREE.Vector3(0, 0, 0);
 export const liveObjects = {
     looseLogs: new Map<string, THREE.Object3D>(),
     food: new Map<string, THREE.Object3D>(),
-    // Wolves/bears: their physics object + what happens when a thrown log hits them
-    mobs: new Map<string, { object: THREE.Object3D; hit: (dirX: number, dirZ: number) => void }>(),
+    // Wolves/bears: their physics object + what happens when something hits them
+    mobs: new Map<string, MobHandle>(),
+};
+
+export interface MobHandle {
+    object: THREE.Object3D;
+    type: 'wolf' | 'bear' | 'piranha';
+    /** A thrown log, the Log Shield or a magpie's swoop: dazed and knocked back; counts one hit */
+    hit: (dirX: number, dirZ: number) => void;
+    /** A tail-slap wave: washed away hard (power 0..1); also counts one hit */
+    shove: (dirX: number, dirZ: number, power: number) => void;
+}
+
+// Chucky's abilities, from a button or key (store.tailSlap / store.callMagpies), picked up by
+// the scene (components/TailSlap.tsx, components/Magpies.tsx)
+export type AbilityKind = 'slap' | 'magpies';
+export const abilityEvents = {
+    queue: [] as { kind: AbilityKind; x: number; y: number; z: number }[],
 };
 
 // @react-three/cannon moves a body by writing its object's MATRIX (matrixAutoUpdate = false);

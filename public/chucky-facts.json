@@ -19,7 +19,8 @@
     { "id": "intro-dive", "text": "In the river, hold 🤿 to dive for sunken logs and fruit. Keep an eye on my breath bar!" },
     { "id": "intro-food", "text": "Apples and berries heal me. Three berries give me the Zoomies - a burst of speed!" },
     { "id": "intro-night", "text": "Beware the night: wolves and bears come out. Hold 🪵 and let go to chuck a log at them - a quick tap is a short toss, hold longer for a long lob." },
-    { "id": "intro-extras", "text": "Check 🎯 Challenges under your stats for bonus points, and tap the little map to make it bigger. After the rain, look for a rainbow: there's treasure where it ends!" }
+    { "id": "intro-extras", "text": "Check 🎯 Challenges under your stats for bonus points, and tap the little map to make it bigger. After the rain, look for a rainbow: there's treasure where it ends!" },
+    { "id": "intro-river", "text": "Build a dam right across the river and the water rises behind it into a pond. Flood a meadow and magpies move in! Press E (💦) in the water to slap your tail, and Q (🐦) to call your magpies." }
   ],
   "facts": [
     { "id": "teeth-orange", "when": { "trees": 1 }, "text": "Fact nugget: beaver teeth are orange! The enamel has iron in it, which makes it extra tough - and our front teeth never stop growing, so we have to keep gnawing." },
@@ -44,6 +45,9 @@
     { "id": "piranha-myth", "when": { "bitten": 1 }, "text": "Ouch! Myth buster: real piranhas rarely attack big animals, and the 'skeleton in seconds' stories are mostly movie magic. They live in South America, not in beaver rivers - this one is a game monster!" },
     { "id": "winter-pantry", "text": "Before winter, beavers stash branches underwater next to the lodge - a food pantry they can reach even when the pond freezes over." },
     { "id": "giant-beaver", "text": "Long ago, a giant beaver about the size of a black bear lived in North America. Imagine the size of its dams!" },
-    { "id": "storm-repairs", "text": "After a big storm, the river rises and can punch holes in a dam. Beavers hurry out to patch the leaks with fresh sticks and mud." }
+    { "id": "storm-repairs", "text": "After a big storm, the river rises and can punch holes in a dam. Beavers hurry out to patch the leaks with fresh sticks and mud." },
+    { "id": "tail-slap", "text": "When a beaver spots danger, it slaps its flat tail on the water with a loud SMACK. It warns the whole family, and they all dive for safety." },
+    { "id": "beaver-wetlands", "text": "Beaver ponds turn streams into wetlands. Birds, frogs, fish, insects and lots of other animals move in, so beavers are called ecosystem engineers." },
+    { "id": "dead-trees", "text": "Trees standing in a beaver pond slowly die, and the dead trunks (snags) become homes for woodpeckers and nesting spots for other birds." }
   ]
 }

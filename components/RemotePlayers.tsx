@@ -6,6 +6,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGameStore } from '../store';
 import { currentWoodchuckPos, playerState } from '../globals';
+import { getWaterLevel } from '../services/hydrology';
 import { multiplayer, remotePlayers, TEAM_INFO, Team, RemoteSample } from '../services/multiplayer';
 import { ShieldLogs, SHIELD_SPIN } from './Magic';
 
@@ -185,7 +186,7 @@ export const MultiplayerSync = () => {
             f: playerState.facing,
             sw: s.isInWater,
             sh: s.magic.shield > Date.now(),
-            dv: s.isInWater && p.y < WATER_LEVEL - 0.2,
+            dv: s.isInWater && p.y < getWaterLevel(p.x, p.z) - 0.2,
             ch: s.activeTreeId !== null,
             ko: s.koUntil > Date.now(),
             s: Math.floor(s.score),

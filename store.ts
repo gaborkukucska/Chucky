@@ -7,9 +7,10 @@ import { multiplayer, canDemolish, MP_OFF, MpState } from './services/multiplaye
 import type { Fact } from './services/facts';
 import { persistence, SaveData, SAVE_VERSION, sanitizeName } from './services/persistence';
 import { generateBlueprints, BLUEPRINT_THRESHOLDS } from './blueprints';
-import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, readBodyTransform, fx } from './globals';
-import { Challenge, ChallengeStat, ChallengeTallies, NO_TALLIES, CHALLENGE_SLOTS, CHALLENGE_STREAK, pickChallenge, challengeText, challengeIcon } from './services/challenges';
+import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, readBodyTransform, fx, abilityEvents } from './globals';
+import { Challenge, ChallengeStat, ChallengeTallies, TallyKey, NO_TALLIES, CHALLENGE_SLOTS, CHALLENGE_STREAK, pickChallenge, challengeText, challengeIcon } from './services/challenges';
 import { getWeather, WEATHER_SLOTS } from './services/weather';
+import { getWaterLevel, magpieCount, hydrology } from './services/hydrology';
 
 export const MAP_SIZE = 300;
 
@@ -115,7 +116,12 @@ export const MAGIC_INFO: Record<MagicType, { icon: string; label: string; durati
 };
 // Dev menu (npm run dev only, components/DevPanel.tsx)
 export type DevPowerup = 'tree' | 'log' | 'speed' | MagicType;
-export type DevAction = 'magic' | 'wood' | 'heal' | 'wolf' | 'bear' | 'piranha' | 'night' | 'day' | 'rain' | 'storm' | 'rainbow' | 'clear';
+export type DevAction = 'magic' | 'wood' | 'heal' | 'wolf' | 'bear' | 'piranha' | 'night' | 'day' | 'rain' | 'storm' | 'rainbow' | 'clear' | 'fillPonds';
+// --- Chucky's abilities ---
+export const SLAP_COOLDOWN = 7000;      // ms - Tail Slap (E / 💦): a wave from the water
+export const MAGPIE_COOLDOWN = 25000;   // ms - Magpie Call (Q / 🐦): needs magpies (wetlands)
+const SLAP_REACH = 2.5;                 // m - water this close to Chucky is enough to slap it
+
 // --- Rainbow treasure (after rain, where the rainbow ends) ---
 const RAINBOW_POINTS = 100;
 const RAINBOW_WOOD = 10;
@@ -194,6 +200,8 @@ interface GameState {
   challengesDone: number;
   tallies: ChallengeTallies;     // Counts only the challenges need (builds, fruit, nights...)
   rainbowFound: string;          // Slot key of the last rainbow whose treasure we took
+  slapReadyAt: number;           // Date.now() the Tail Slap can be used again
+  magpieReadyAt: number;         // ... and the Magpie Call
   woodCount: number;
   score: number;
   totalLogsCollected: number;
@@ -336,6 +344,9 @@ interface GameState {
   defeatPiranha: (id: string, position: Vec3) => void;
   piranhaBite: () => void;
   checkChallenges: () => void;
+  tailSlap: () => void;          // E / 💦 - only in or right beside water
+  callMagpies: () => void;       // Q / 🐦 - only once magpies nest at a wetland
+  addTally: (key: TallyKey) => void;
   collectRainbow: (slotKey: string) => void;
   devPowerup: (kind: DevPowerup, on: boolean) => void;   // Dev menu only
   devAction: (action: DevAction, playerPos: Vec3) => void; // Dev menu only
@@ -681,7 +692,7 @@ const randomMagicType = (): MagicType => {
     return 'shield';
 };
 
-const addTally = (s: GameState, key: keyof ChallengeTallies, n = 1): ChallengeTallies => ({ ...s.tallies, [key]: (s.tallies[key] ?? 0) + n });
+const addTally = (s: GameState, key: TallyKey, n = 1): ChallengeTallies => ({ ...s.tallies, [key]: (s.tallies[key] ?? 0) + n });
 
 // =====================================================================
 // Blueprint unlocks (shared by log collection and building)
@@ -872,6 +883,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   challengesDone: 0,
   tallies: { ...NO_TALLIES },
   rainbowFound: '',
+  slapReadyAt: 0,
+  magpieReadyAt: 0,
   isPlacementMode: false,
   isBuildMenuOpen: false,
   selectedBlueprintId: null,
@@ -946,6 +959,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           challengesDone: 0,
           tallies: { ...NO_TALLIES },
           rainbowFound: '',
+          slapReadyAt: 0,
+          magpieReadyAt: 0,
           leaderboardRank: null,
           spawnPoint: null,
           spawnFacing: Math.PI / 2,
@@ -1163,6 +1178,8 @@ export const useGameStore = create<GameState>((set, get) => ({
               timeOfDay: state.timeOfDay,
               canBuild: state.blueprints[0]?.unlocked ?? false,
               hasPiranha: state.piranhas.length > 0,
+              hasMagpies: magpieCount() > 0,
+              hasWetland: hydrology.wetlandArea > 0,
           };
           let done = state.challengesDone;
           let points = 0;
@@ -1215,6 +1232,46 @@ export const useGameStore = create<GameState>((set, get) => ({
           };
       });
   },
+
+  // ----- Abilities: the store checks they can be used and starts the cooldown; the scene does
+  // the rest (components/TailSlap.tsx, components/Magpies.tsx) -----
+  tailSlap: () => {
+      const s = get();
+      if (s.phase !== 'PLAYING' || s.isPaused || s.koUntil > 0) return;
+      const now = Date.now();
+      if (now < s.slapReadyAt) return;
+      const p = currentWoodchuckPos;
+      // In the water, or right at its edge
+      let nearWater = false;
+      for (let i = 0; i < 9 && !nearWater; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          const r = i === 8 ? 0 : SLAP_REACH;
+          const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
+          if (calculateTerrainHeight(x, z) < getWaterLevel(x, z)) nearWater = true;
+      }
+      if (!nearWater) {
+          set({ notification: { id: `slap-${now}`, title: 'NO WATER HERE', message: 'Get to the water to slap your tail! 💦', type: 'info' } });
+          return;
+      }
+      abilityEvents.queue.push({ kind: 'slap', x: p.x, y: p.y, z: p.z });
+      set({ slapReadyAt: now + SLAP_COOLDOWN });
+  },
+
+  callMagpies: () => {
+      const s = get();
+      if (s.phase !== 'PLAYING' || s.isPaused || s.koUntil > 0) return;
+      const now = Date.now();
+      if (now < s.magpieReadyAt) return;
+      if (magpieCount() === 0) {
+          set({ notification: { id: `magpies-${now}`, title: 'NO MAGPIES YET', message: 'Dam the river until it floods a meadow: magpies will come to nest by the wetland. 🐦', type: 'info' } });
+          return;
+      }
+      const p = currentWoodchuckPos;
+      abilityEvents.queue.push({ kind: 'magpies', x: p.x, y: p.y, z: p.z });
+      set({ magpieReadyAt: now + MAGPIE_COOLDOWN });
+  },
+
+  addTally: (key) => set((state) => ({ tallies: addTally(state, key) })),
 
   // The treasure where the rainbow ends (components/Weather.tsx); each player can take it once
   collectRainbow: (slotKey) => set((state) => {
@@ -1283,8 +1340,8 @@ export const useGameStore = create<GameState>((set, get) => ({
                   const mx = Math.max(-limit, Math.min(limit, px + Math.sin(a) * 8));
                   const mz = Math.max(-limit, Math.min(limit, pz + Math.cos(a) * 8));
                   const groundY = calculateTerrainHeight(mx, mz);
-                  if (groundY > WATER_LEVEL + 0.5) {
-                      return { mobs: [...state.mobs, { id: `mob-dev-${now}-${i}`, position: [mx, groundY + 2, mz], velocity: [0, 0, 0], type: action, createdAt: now }], ...night };
+                  if (groundY > getWaterLevel(mx, mz) + 0.5) {
+                      return { mobs: [...state.mobs, { id: `mob-dev-${action}-${now}-${i}`, position: [mx, groundY + 2, mz], velocity: [0, 0, 0], type: action, createdAt: now }], ...night };
                   }
               }
               return state;
@@ -1297,6 +1354,11 @@ export const useGameStore = create<GameState>((set, get) => ({
               return state.mp.status !== 'off' ? state : { timeOfDay: 0.55 }; // Joint games: the room owns the clock
           case 'day':
               return state.mp.status !== 'off' ? state : { timeOfDay: 0.05 };
+          case 'fillPonds':
+              // Ponds behind dams fill (or drain) at once instead of over a few seconds
+              hydrology.shown.set(hydrology.target);
+              hydrology.settled = false;
+              return state;
           case 'rain':
           case 'storm':
           case 'rainbow':
@@ -2071,8 +2133,8 @@ export const useGameStore = create<GameState>((set, get) => ({
              const mz = Math.max(-limit, Math.min(limit, playerPos[2] + Math.sin(angle) * dist));
              const groundY = calculateTerrainHeight(mx, mz);
 
-             // Mobs are land animals - skip this spawn attempt if the spot is under water
-             if (groundY > WATER_LEVEL + 0.5) {
+             // Mobs are land animals - skip this spawn attempt if the spot is under water (ponds too)
+             if (groundY > getWaterLevel(mx, mz) + 0.5) {
                  newMobs = [...state.mobs, {
                      id: `mob-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
                      position: [mx, groundY + 2, mz],
@@ -2135,4 +2197,4 @@ export const useGameStore = create<GameState>((set, get) => ({
 audioService.applySettings(useGameStore.getState().audioSettings);
 
 // Dev servers only: reach the store from the browser console (and from automated play-tests)
-if (import.meta.env.DEV) Object.assign(window as any, { __chuckyStore: useGameStore, __chuckyPlayer: playerState });
+if (import.meta.env.DEV) Object.assign(window as any, { __chuckyStore: useGameStore, __chuckyPlayer: playerState, __chuckyLive: liveObjects });

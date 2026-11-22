@@ -9,6 +9,7 @@ import { audioService } from '../services/audio';
 import { PreviewStructureOverlay } from './WorldObjects';
 import { canDemolish, TEAM_INFO, Team } from '../services/multiplayer';
 import { TreeData, PlacedStructure, Blueprint } from '../types';
+import { getWaterLevel, getFlowFactor } from '../services/hydrology';
 
 // =====================================================================
 // Tuning - everything that affects how Chucky feels lives here
@@ -36,7 +37,7 @@ const MAP_LIMIT = 145;
 const MAX_FRAME_DELTA = 0.1;   // Clamp long frames (tab switch, GC hitch) to avoid teleporting
 
 // Diving (hold the dive button / Space while in the river)
-const SURFACE_Y = WATER_LEVEL + 0.2;  // Where Chucky floats
+const FLOAT_HEIGHT = 0.2;    // Chucky floats this far above the water's surface (which dams can raise)
 const DIVE_SPEED = 4;                 // Units per second down
 const SURFACE_SPEED = 5;              // Units per second back up
 const BREATH_SECONDS = 10;            // Time underwater on a full breath
@@ -345,9 +346,10 @@ export const Woodchuck = () => {
 
         // --- State ---
         const terrainHere = calculateTerrainHeight(x, z);
-        const inWater = terrainHere < WATER_LEVEL;
+        const waterHere = getWaterLevel(x, z); // Ponds behind dams are higher than the river
+        const inWater = terrainHere < waterHere;
         const touchingGround = (y - terrainHere) < (PLAYER_RADIUS + 0.2);
-        const isUnderwater = inWater && y < WATER_LEVEL - 0.2;
+        const isUnderwater = inWater && y < waterHere - 0.2;
         // On the river bed while diving still counts as swimming (swim pose, swim speed, drift)
         const isSwimming = inWater && (!touchingGround || isUnderwater);
 
@@ -389,7 +391,7 @@ export const Woodchuck = () => {
 
         if (isSwimming) {
             // Drift with the river
-            const flowSpeed = 80 / Math.max(1, getRiverWidth(z));
+            const flowSpeed = (80 / Math.max(1, getRiverWidth(z))) * getFlowFactor(x, z); // Ponds are still
             nextZ += flowSpeed * RIVER_DRIFT * delta;
         }
 
@@ -479,8 +481,9 @@ export const Woodchuck = () => {
         const bedY = terrainNext + PLAYER_RADIUS;
         const smoothK = 1 - Math.exp(-VERTICAL_SMOOTHING * delta);
         let finalY: number;
-        if (terrainNext < WATER_LEVEL) {
-            const floatY = Math.max(bedY, SURFACE_Y);
+        const waterNext = getWaterLevel(nextX, nextZ);
+        if (terrainNext < waterNext) {
+            const floatY = Math.max(bedY, waterNext + FLOAT_HEIGHT);
             if (isDiving.current) {
                 finalY = moveTowards(y, bedY, DIVE_SPEED * delta);       // Sink towards the river bed
             } else if (y < floatY) {
@@ -515,13 +518,13 @@ export const Woodchuck = () => {
 
         // Splashes: jumping in, and bursting back up after a dive
         if (wasInWater.current === false && inWater) {
-            fx.emit('splash', x, WATER_LEVEL, z, 18);
+            fx.emit('splash', x, waterHere, z, 18);
             audioService.playPlop(0.6);
         }
         wasInWater.current = inWater;
 
-        const nowUnderwater = inWater && y < WATER_LEVEL - 0.2;
-        if (!nowUnderwater && underwaterRef.current) fx.emit('splash', x, WATER_LEVEL, z, 12);
+        const nowUnderwater = inWater && y < waterHere - 0.2;
+        if (!nowUnderwater && underwaterRef.current) fx.emit('splash', x, waterHere, z, 12);
         if (nowUnderwater !== underwaterRef.current) {
             underwaterRef.current = nowUnderwater;
             setUnderwater(nowUnderwater);
@@ -653,7 +656,7 @@ export const Woodchuck = () => {
             visualOffsetY.current += (targetOffset - visualOffsetY.current) * (1 - Math.exp(-10 * delta));
             bodyRef.current.position.y = visualOffsetY.current;
             // Nose down while diving towards the bed, nose up while surfacing
-            const divePitch = isDiving.current && y > bedY + 0.05 ? 0.45 : (!isDiving.current && y < SURFACE_Y - 0.1 ? -0.35 : 0);
+            const divePitch = isDiving.current && y > bedY + 0.05 ? 0.45 : (!isDiving.current && y < waterHere + FLOAT_HEIGHT - 0.1 ? -0.35 : 0);
             const targetPitch = isSwimming ? Math.PI / 2 + divePitch : 0;
             bodyRef.current.rotation.x += (targetPitch - bodyRef.current.rotation.x) * (1 - Math.exp(-10 * delta));
             // Knocked out: lying on its side

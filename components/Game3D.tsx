@@ -14,8 +14,12 @@ import { RemotePlayers, MultiplayerSync } from './RemotePlayers';
 import { Piranhas, MagicItems, LogShield } from './Magic';
 import { WeatherSystem, WeatherClouds, liveWeather } from './Weather';
 import { Effects } from './Effects';
+import { MobRenderer } from './Mobs';
+import { TailSlap } from './TailSlap';
+import { Magpies } from './Magpies';
+import { getWaterLevel } from '../services/hydrology';
 import { multiplayer } from '../services/multiplayer';
-import { FoodData, MobData, GraphicsQuality } from '../types';
+import { FoodData, GraphicsQuality } from '../types';
 import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition, throwAim } from '../globals';
 
 const WATER_LEVEL = -1.5;
@@ -43,20 +47,6 @@ const GRASS_QUALITY: Record<GraphicsQuality, { tilesAcross: number; bladesPerTil
 
 // --- Food ---
 const FOOD_PICKUP_RADIUS = 1.3;
-
-// --- Mobs ---
-const MOB_SPEED = { wolf: 9, bear: 6 };
-const MOB_DAMAGE = { wolf: 15, bear: 30 };
-const MOB_AGGRO_RANGE = 45;
-const MOB_LUNGE_RANGE = 8;
-const MOB_LUNGE_MULTIPLIER = 1.3;
-const MOB_HIT_RANGE = 1.3;
-const MOB_HIT_COOLDOWN = 1200;  // ms between hits from the same mob
-const MOB_STUN_TIME = 600;      // ms a mob backs off after landing a hit
-const MOB_KNOCKBACK = 60;       // Impulse applied to the mob after a hit (mass 10)
-const MOB_HITS_TO_CHASE = { wolf: 2, bear: 3 }; // Thrown-log hits before it runs off
-const MOB_THROW_STUN_TIME = 900; // ms a mob is dazed after a log hits it
-const MOB_THROW_KNOCKBACK = 55;
 
 // =====================================================================
 // Optional scene elements (e.g. drei Clouds load a texture from a CDN).
@@ -186,7 +176,7 @@ const CameraController = () => {
         const minY = Math.max(
             calculateTerrainHeight(desired.x, desired.z) + CAMERA_MIN_CLEARANCE,
             midGround + CAMERA_MIN_CLEARANCE * 0.5,
-            WATER_LEVEL + 0.6
+            getWaterLevel(desired.x, desired.z) + 0.6
         );
         if (desired.y < minY) desired.y = minY;
 
@@ -402,133 +392,6 @@ const Food = React.memo(({ data }: { data: FoodData }) => {
             <mesh position={[0, 0.3, 0]}>
                 <cylinderGeometry args={[0.05, 0.05, 0.2]} />
                 <meshStandardMaterial color="#3E2723" />
-            </mesh>
-        </mesh>
-    );
-});
-
-// =====================================================================
-// Mobs (restored) - wolves & bears hunt at night, can't follow Chucky into the river
-// =====================================================================
-const MobRenderer = React.memo(({ data }: { data: MobData }) => {
-    const touchingRef = useRef(false);
-    const lastHitRef = useRef(0);
-    const hitsLeftRef = useRef(MOB_HITS_TO_CHASE[data.type]);
-    const stunUntilRef = useRef(0);
-    const flashUntilRef = useRef(0);
-    const bodyMatRef = useRef<THREE.MeshStandardMaterial>(null);
-    const livePos = useMemo(() => new THREE.Vector3(), []);
-
-    const [ref, api] = useSphere(() => ({
-        mass: 10,
-        position: data.position,
-        args: [0.5],
-        type: 'Dynamic',
-        linearDamping: 0.5,
-        fixedRotation: true,
-        onCollide: (e) => {
-            if (e.body && e.body.userData && (e.body.userData as any).tag === 'player') touchingRef.current = true;
-        }
-    }));
-
-    const vy = useRef(0);
-    useEffect(() => api.velocity.subscribe(v => { vy.current = v[1]; }), [api.velocity]);
-
-    // Thrown logs check this registry: a hit dazes and knocks the mob back; enough hits chase it off
-    useEffect(() => {
-        const mesh = ref.current as THREE.Object3D | null;
-        if (!mesh) return;
-        liveObjects.mobs.set(data.id, {
-            object: mesh,
-            hit: (dirX: number, dirZ: number) => {
-                const now = Date.now();
-                stunUntilRef.current = now + MOB_THROW_STUN_TIME;
-                flashUntilRef.current = now + 250;
-                api.applyImpulse([dirX * MOB_THROW_KNOCKBACK, 25, dirZ * MOB_THROW_KNOCKBACK], [0, 0, 0]);
-                hitsLeftRef.current -= 1;
-                if (hitsLeftRef.current <= 0) {
-                    const p = readBodyPosition(mesh, new THREE.Vector3());
-                    useGameStore.getState().defeatMob(data.id, [p.x, p.y, p.z]); // May drop magic here
-                }
-            },
-        });
-        return () => { liveObjects.mobs.delete(data.id); };
-    }, [data.id, api]);
-
-    useFrame(() => {
-        // @ts-ignore
-        const mesh = ref.current as THREE.Object3D | null;
-        if (!mesh) return;
-        const s = useGameStore.getState();
-
-        if (s.isPaused || s.phase !== 'PLAYING') {
-            api.velocity.set(0, vy.current, 0);
-            touchingRef.current = false;
-            return;
-        }
-
-        const pos = readBodyPosition(mesh, livePos); // Live physics position (not the spawn point)
-        if (pos.y < -30) {
-            s.removeMob(data.id);
-            return;
-        }
-
-        const dx = currentWoodchuckPos.x - pos.x;
-        const dz = currentWoodchuckPos.z - pos.z;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        const now = Date.now();
-
-        // Flash red when hit by a log; dazed mobs don't move or attack
-        if (bodyMatRef.current) bodyMatRef.current.emissive.setHex(now < flashUntilRef.current ? 0x991111 : 0x000000);
-        if (now < stunUntilRef.current) {
-            touchingRef.current = false;
-            return;
-        }
-
-        // Attack (collision or proximity), with a per-mob cooldown
-        const touching = touchingRef.current || dist < MOB_HIT_RANGE;
-        touchingRef.current = false;
-        if (touching && now - lastHitRef.current > MOB_HIT_COOLDOWN) {
-            lastHitRef.current = now;
-            s.takeDamage(MOB_DAMAGE[data.type]);
-            if (dist > 0.001) {
-                api.applyImpulse([(-dx / dist) * MOB_KNOCKBACK, 0, (-dz / dist) * MOB_KNOCKBACK], [0, 0, 0]);
-            }
-        }
-
-        // Back off briefly after landing a hit
-        if (now - lastHitRef.current < MOB_STUN_TIME) return;
-
-        if (dist > 1 && dist < MOB_AGGRO_RANGE) {
-            const dirX = dx / dist;
-            const dirZ = dz / dist;
-
-            // Land animals: stop at the river bank instead of wading in
-            const aheadH = calculateTerrainHeight(pos.x + dirX * 1.5, pos.z + dirZ * 1.5);
-            if (aheadH < WATER_LEVEL) {
-                api.velocity.set(0, vy.current, 0);
-            } else {
-                let speed = MOB_SPEED[data.type];
-                if (dist < MOB_LUNGE_RANGE) speed *= MOB_LUNGE_MULTIPLIER;
-                api.velocity.set(dirX * speed, vy.current, dirZ * speed);
-            }
-            api.rotation.set(0, Math.atan2(dx, dz), 0);
-        } else {
-            api.velocity.set(0, vy.current, 0);
-        }
-    });
-
-    return (
-        <mesh ref={ref as any} castShadow>
-            <sphereGeometry args={[0.5, 16, 16]} />
-            <meshStandardMaterial ref={bodyMatRef} color={data.type === 'wolf' ? '#555' : '#3E2723'} />
-            <mesh position={[0.2, 0.2, 0.4]}>
-                <sphereGeometry args={[0.1]} />
-                <meshBasicMaterial color="red" />
-            </mesh>
-            <mesh position={[-0.2, 0.2, 0.4]}>
-                <sphereGeometry args={[0.1]} />
-                <meshBasicMaterial color="red" />
             </mesh>
         </mesh>
     );
@@ -752,7 +615,7 @@ const ThrowAimGuide = () => {
             x += vx * AIM_STEP;
             y += vy * AIM_STEP;
             z += vz * AIM_STEP;
-            const ground = Math.max(calculateTerrainHeight(x, z), WATER_LEVEL);
+            const ground = Math.max(calculateTerrainHeight(x, z), getWaterLevel(x, z));
             path[n * 3] = x;
             path[n * 3 + 1] = Math.max(y, ground);
             path[n * 3 + 2] = z;
@@ -824,7 +687,7 @@ const AmbientAudioManager = () => {
         audioService.updateEnvironment({
             riverDistance: Math.max(0, Math.abs(p.x - getRiverX(p.z)) - getRiverWidth(p.z)),
             isNight: isNightTime(s.timeOfDay),
-            isUnderwater: s.isInWater && p.y < WATER_LEVEL - 0.2,
+            isUnderwater: s.isInWater && p.y < getWaterLevel(p.x, p.z) - 0.2,
             rain: s.phase === 'PLAYING' ? liveWeather.rain : 0,
         });
     });
@@ -912,6 +775,8 @@ const GameScene = () => {
                 <LogShield />
                 <CameraController />
                 <Effects quality={quality} />
+                <TailSlap />
+                <Magpies />
 
                 {/* Effects */}
                 <Sparkles count={50} scale={12} size={4} speed={0.4} opacity={0.5} color="#FFD700" position={[0, 5, 0]} />

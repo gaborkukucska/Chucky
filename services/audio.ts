@@ -415,6 +415,180 @@ class AudioService {
         });
     }
 
+    /** A wolf's howl: a rising, wavering note that falls away. volume 0..1 (distance) */
+    public playHowl(volume = 1) {
+        if (!this.sfxReady() || volume <= 0.02) return;
+        const ctx = this.ctx!;
+        const now = ctx.currentTime;
+        const base = 420 + Math.random() * 80;
+        const osc = ctx.createOscillator();
+        const vib = ctx.createOscillator();
+        const vibGain = ctx.createGain();
+        const gain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+        osc.type = 'sawtooth';
+        filter.type = 'bandpass';
+        filter.frequency.value = 900;
+        filter.Q.value = 1.2;
+        osc.frequency.setValueAtTime(base * 0.75, now);
+        osc.frequency.exponentialRampToValueAtTime(base * 1.35, now + 0.5);
+        osc.frequency.setValueAtTime(base * 1.35, now + 1.3);
+        osc.frequency.exponentialRampToValueAtTime(base * 0.8, now + 2.0);
+        vib.frequency.value = 5.5;
+        vibGain.gain.value = 9;
+        vib.connect(vibGain).connect(osc.frequency);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.09 * volume, now + 0.35);
+        gain.gain.setValueAtTime(0.09 * volume, now + 1.4);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.1);
+        osc.connect(filter).connect(gain).connect(this.buses.sfx!);
+        osc.start(now); vib.start(now);
+        osc.stop(now + 2.15); vib.stop(now + 2.15);
+    }
+
+    /** A bear rearing up: a deep growling roar. volume 0..1 (distance) */
+    public playRoar(volume = 1) {
+        if (!this.sfxReady() || volume <= 0.02) return;
+        const ctx = this.ctx!;
+        const buffer = this.getNoiseBuffer();
+        if (!buffer) return;
+        const now = ctx.currentTime;
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(300, now);
+        filter.frequency.linearRampToValueAtTime(700, now + 0.3);
+        filter.frequency.exponentialRampToValueAtTime(180, now + 1.1);
+        const growl = ctx.createOscillator();
+        growl.type = 'sawtooth';
+        growl.frequency.setValueAtTime(70, now);
+        growl.frequency.linearRampToValueAtTime(95, now + 0.3);
+        growl.frequency.exponentialRampToValueAtTime(55, now + 1.1);
+        // Rough, rattling amplitude
+        const am = ctx.createOscillator();
+        const amGain = ctx.createGain();
+        am.frequency.value = 23;
+        amGain.gain.value = 0.5;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.35 * volume, now + 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+        am.connect(amGain).connect(gain.gain);
+        src.connect(filter).connect(gain);
+        const gGain = ctx.createGain();
+        gGain.gain.value = 0.35;
+        growl.connect(gGain).connect(gain);
+        gain.connect(this.buses.sfx!);
+        src.start(now, Math.random()); growl.start(now); am.start(now);
+        src.stop(now + 1.25); growl.stop(now + 1.25); am.stop(now + 1.25);
+    }
+
+    /** A magpie's warbling call (a quick run of fluting notes). volume 0..1 */
+    public playMagpie(volume = 1) {
+        if (!this.sfxReady() || volume <= 0.02) return;
+        const ctx = this.ctx!;
+        const now = ctx.currentTime;
+        const notes = 4 + Math.floor(Math.random() * 4);
+        let t = now;
+        for (let i = 0; i < notes; i++) {
+            const f = 900 + Math.random() * 1400;
+            const len = 0.06 + Math.random() * 0.1;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(f, t);
+            osc.frequency.exponentialRampToValueAtTime(f * (Math.random() < 0.5 ? 1.3 : 0.75), t + len);
+            gain.gain.setValueAtTime(0.0001, t);
+            gain.gain.exponentialRampToValueAtTime(0.07 * volume, t + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + len);
+            osc.connect(gain).connect(this.buses.sfx!);
+            osc.start(t);
+            osc.stop(t + len + 0.02);
+            t += len + 0.02;
+        }
+    }
+
+    /** Wings rushing past and a beak clack: a magpie swooping */
+    public playSwoop(volume = 1) {
+        if (!this.sfxReady() || volume <= 0.02) return;
+        const ctx = this.ctx!;
+        const buffer = this.getNoiseBuffer();
+        if (!buffer) return;
+        const now = ctx.currentTime;
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.Q.value = 1.5;
+        filter.frequency.setValueAtTime(600, now);
+        filter.frequency.exponentialRampToValueAtTime(2400, now + 0.25);
+        filter.frequency.exponentialRampToValueAtTime(800, now + 0.4);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.18 * volume, now + 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+        src.connect(filter).connect(gain).connect(this.buses.sfx!);
+        src.start(now, Math.random() * 1.5);
+        src.stop(now + 0.45);
+        // Clack
+        const osc = ctx.createOscillator();
+        const g2 = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = 1800;
+        g2.gain.setValueAtTime(0.06 * volume, now + 0.22);
+        g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
+        osc.connect(g2).connect(this.buses.sfx!);
+        osc.start(now + 0.22);
+        osc.stop(now + 0.27);
+    }
+
+    /** Chucky slapping his tail on the water: a sharp crack, a thump and a wash of water */
+    public playTailSlap() {
+        if (!this.sfxReady()) return;
+        const ctx = this.ctx!;
+        const buffer = this.getNoiseBuffer();
+        if (!buffer) return;
+        const now = ctx.currentTime;
+        // Crack
+        const crack = ctx.createBufferSource();
+        crack.buffer = buffer;
+        const hp = ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 1500;
+        const cg = ctx.createGain();
+        cg.gain.setValueAtTime(0.5, now);
+        cg.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+        crack.connect(hp).connect(cg).connect(this.buses.sfx!);
+        crack.start(now, Math.random());
+        crack.stop(now + 0.1);
+        // Thump
+        const osc = ctx.createOscillator();
+        const og = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(45, now + 0.25);
+        og.gain.setValueAtTime(0.45, now);
+        og.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+        osc.connect(og).connect(this.buses.sfx!);
+        osc.start(now);
+        osc.stop(now + 0.32);
+        // The wave washing outwards
+        const wash = ctx.createBufferSource();
+        wash.buffer = buffer;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(2500, now + 0.05);
+        lp.frequency.exponentialRampToValueAtTime(400, now + 1.2);
+        const wg = ctx.createGain();
+        wg.gain.setValueAtTime(0.0001, now);
+        wg.gain.exponentialRampToValueAtTime(0.22, now + 0.15);
+        wg.gain.exponentialRampToValueAtTime(0.0001, now + 1.3);
+        wash.connect(lp).connect(wg).connect(this.buses.sfx!);
+        wash.start(now, Math.random());
+        wash.stop(now + 1.35);
+    }
+
     // ------------------------------------------------------------------
     // Music - minimalist bit-jazz loop (walking bass, chords, swing)
     // ------------------------------------------------------------------

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { useGameStore, calculateTerrainHeight, getRiverX, getRiverWidth } from '../store';
 import { audioService } from '../services/audio';
 import { currentWoodchuckPos, fx, FxKind } from '../globals';
+import { getWaterLevel } from '../services/hydrology';
 import { liveWeather } from './Weather';
 import { GraphicsQuality } from '../types';
 
@@ -132,7 +133,7 @@ const Particles = () => {
             d.pos[i * 3 + 2] += d.vel[i * 3 + 2] * delta;
             // Land on the ground instead of falling through it
             const g = calculateTerrainHeight(d.pos[i * 3], d.pos[i * 3 + 2]);
-            const floor = Math.max(g, WATER_LEVEL) + d.size[i] * 0.5;
+            const floor = Math.max(g, getWaterLevel(d.pos[i * 3], d.pos[i * 3 + 2])) + d.size[i] * 0.5;
             if (d.pos[i * 3 + 1] < floor && d.vel[i * 3 + 1] < 0) {
                 d.pos[i * 3 + 1] = floor;
                 d.vel[i * 3 + 1] *= -0.25;
@@ -223,7 +224,7 @@ const Fireflies = ({ quality }: { quality: GraphicsQuality }) => {
             const r = 4 + Math.random() * FIREFLY_RANGE;
             const x = px + Math.cos(a) * r, z = pz + Math.sin(a) * r;
             const g = calculateTerrainHeight(x, z);
-            if (g > WATER_LEVEL + 0.3) {
+            if (g > getWaterLevel(x, z) + 0.3) {
                 f.home.set(x, g + 0.6 + Math.random() * 1.8, z);
                 f.placed = true;
                 return;
@@ -273,7 +274,7 @@ const FISH_HEAR_DISTANCE = 45;
 
 const JumpingFish = () => {
     const ref = useRef<THREE.Group>(null);
-    const jump = useRef<{ start: number; x: number; z: number; dx: number; dz: number } | null>(null);
+    const jump = useRef<{ start: number; x: number; z: number; dx: number; dz: number; level: number } | null>(null);
     const nextAt = useRef(4);
 
     useFrame((st) => {
@@ -292,10 +293,11 @@ const JumpingFish = () => {
                 const z = p.z + (Math.random() - 0.5) * 50;
                 const x = getRiverX(z) + (Math.random() - 0.5) * getRiverWidth(z) * 1.2;
                 if (Math.hypot(x - p.x, z - p.z) > 55) continue;
-                if (calculateTerrainHeight(x, z) > WATER_LEVEL - 0.8) continue;
+                const level = getWaterLevel(x, z); // Fish like the ponds behind dams too
+                if (calculateTerrainHeight(x, z) > level - 0.8) continue;
                 const a = Math.random() * Math.PI * 2;
-                jump.current = { start: t, x, z, dx: Math.cos(a), dz: Math.sin(a) };
-                fx.emit('splash', x, WATER_LEVEL, z, 10);
+                jump.current = { start: t, x, z, dx: Math.cos(a), dz: Math.sin(a), level };
+                fx.emit('splash', x, level, z, 10);
                 break;
             }
             return;
@@ -305,7 +307,7 @@ const JumpingFish = () => {
         const f = (t - j.start) / FISH_JUMP_TIME;
         if (f >= 1) {
             const ex = j.x + j.dx * FISH_LEAP.length, ez = j.z + j.dz * FISH_LEAP.length;
-            fx.emit('splash', ex, WATER_LEVEL, ez, 14);
+            fx.emit('splash', ex, j.level, ez, 14);
             const dist = Math.hypot(ex - p.x, ez - p.z);
             if (dist < FISH_HEAR_DISTANCE) audioService.playPlop(1 - dist / FISH_HEAR_DISTANCE);
             jump.current = null;
@@ -315,7 +317,7 @@ const JumpingFish = () => {
         g.visible = true;
         const x = j.x + j.dx * FISH_LEAP.length * f;
         const z = j.z + j.dz * FISH_LEAP.length * f;
-        const y = WATER_LEVEL - 0.2 + 4 * FISH_LEAP.height * f * (1 - f);
+        const y = j.level - 0.2 + 4 * FISH_LEAP.height * f * (1 - f);
         g.position.set(x, y, z);
         // Nose follows the arc; a wiggle of the tail
         const climb = 4 * FISH_LEAP.height * (1 - 2 * f) / FISH_LEAP.length;

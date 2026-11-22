@@ -2,6 +2,42 @@
 
 All notable changes to Chucky the Woodchuck. Newest first.
 
+## 2026-11-22: A living river, magpies, the Tail Slap and new wolves and bears (round 23)
+
+### New: a living river
+- **Dams hold the water back.** Build across the river and the water rises behind the dam into a pond (up to 2.8 m), while the river below it runs up to 1.5 m lower for about 50 m. How much of the river's width and depth a dam blocks sets the rise, so even dams that are still underwater count, and structures side by side add up. The river flows south, so ponds back up to the north.
+- **You can see it.** The water surface follows the river's height: a flat pond, the step where water pours over the dam (with spray at the bottom) and the lower river below. A new dam fills its pond over a few seconds, and a demolished one drains.
+- **Floods and wetlands.** A pond that rises above its banks spills over the low meadows beside it, up to 45 m from the river. That's a wetland: shallow water with grass poking through. It shows on the minimap in a greener blue.
+- **Wolves and bears won't wade in,** and one caught by a rising flood is washed away (counts as chased off). Dams can now protect your patch.
+- Ponds are still: Chucky and logs drift less in them. Swimming, floating, diving, the piranha, jumping fish, splashes, the camera and the minimap all follow the real water height.
+- Everyone in a joint game gets the same river, because it comes from the shared structures. Saves keep it too.
+
+### New: magpies
+- When a wetland appears, magpies move in (2 to 8, more for more wetland) and nest on a dead tree at its edge. By day they sit on the nest, warble and fly laps over the water.
+- **Night guard:** while Chucky is near their wetland at night, they swoop any wolf or bear that comes within 22 m. A swoop is a hit, like a log.
+- **🐦 Magpie Call (Q, or the 🐦 button):** the whole flock flies to Chucky wherever he is, swoops every wolf and bear within 32 m, and circles over him for 12 seconds, swooping anything else that comes. It recharges in 25 seconds and stays locked until magpies have moved in.
+
+### New: Tail Slap
+- **💦 Tail Slap (E, or the 💦 button):** beavers slap their tails on the water to warn of danger. Chucky's slap sends a wave rolling out (15 m when swimming, 9 m from the water's edge) that washes away wolves, bears and the piranha, each counting as a hit. It works only in or right beside water and recharges in 7 seconds.
+
+### New: wolves and bears
+- **Real models:** wolves have a long body, a darker saddle, ears, a snout, a bushy tail and gold eyes that glow at night. Bears are big and round with a shoulder hump and small round ears. Both have four legs that trot, and bound when they rush.
+- **Wolves** lope up, **circle** Chucky at about 7 m with their heads low, then **lunge**. Missed or not, they back off and circle again. They howl when they first pick up his scent.
+- **Bears** lumber up, **rear onto their hind legs and roar** (your warning), then **charge in a straight line** that they can't steer, so step aside. Afterwards they stand panting.
+- New synthesized sounds: howls, roars, magpie warbles, swoops and the tail slap.
+
+### Also
+- Three new challenges: *Dam the river until it floods a meadow*, *Wash away a wolf or bear with a tail slap*, *Magpies swoop 2 wolves or bears*.
+- Chucky has a new intro tip about dams, magpies, E and Q, and new facts about tail slaps, beaver wetlands and dead trees in ponds.
+- On a phone held sideways, the ability buttons sit beside the throw/dive button; held upright, above it.
+- Dev menu: 🌊 fill ponds now. Dev servers also expose `window.__chuckyRiver`, `__chuckyMagpies`, `__chuckyLive` and `__chuckyWaves`.
+- Fixed: spawning a wolf and a bear in the same moment from the dev menu gave them the same id.
+- The water's material changed: drei's distort material scaled every vertex by up to 9%, which would tear a stepped surface. It's now a plain material with a gentle ripple.
+
+Tested: `tsc`, `vite build`, and headless-browser play-tests: dams filling ponds and flooding meadows (top-down), magpies arriving, perching and guarding at night (a wolf chased off with no damage), the Magpie Call, the Tail Slap (wave hits), a flood washing a wolf away, the new wolf and bear models, a phone held sideways and upright, and a two-player joint game where both players get the same dam and pond.
+
+Files: `services/hydrology.ts`, `components/Mobs.tsx`, `components/Magpies.tsx`, `components/TailSlap.tsx` (new), plus `components/Water.tsx`, `components/Game3D.tsx`, `components/Woodchuck.tsx`, `components/WorldObjects.tsx`, `components/Magic.tsx`, `components/Effects.tsx`, `components/Minimap.tsx`, `components/RemotePlayers.tsx`, `components/Controls.tsx`, `components/DevPanel.tsx`, `services/audio.ts`, `services/challenges.ts`, `globals.ts`, `store.ts`, `public/chucky-facts.json`, `README.md`, `CHANGELOG.md`.
+
 ## 2026-11-22: Snappier steering (round 22)
 
 - **3rd-person steering stops when you let go.** Turning still eases in (about 0.2 s to full speed), but it now stops in about 0.05 s when you let go or switch direction. A quick tap gives a small, exact turn.

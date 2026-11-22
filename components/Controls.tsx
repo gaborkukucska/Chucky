@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useGameStore, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX, THROW_CHARGE_MS, throwPowerForCharge } from '../store';
+import { useGameStore, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX, THROW_CHARGE_MS, throwPowerForCharge, SLAP_COOLDOWN, MAGPIE_COOLDOWN, calculateTerrainHeight } from '../store';
+import { currentWoodchuckPos } from '../globals';
+import { getWaterLevel, magpieCount } from '../services/hydrology';
 import { throwAim } from '../globals';
 import { facts } from '../services/facts';
 import { multiplayer } from '../services/multiplayer';
@@ -226,6 +228,74 @@ const ThrowButton = () => {
 };
 
 // =====================================================================
+// Ability buttons (above the throw button): 💦 Tail Slap (E) and 🐦 Magpie Call (Q).
+// A dark sweep shows the cooldown. 💦 is dimmed away from water; 🐦 is locked until magpies
+// nest at a wetland (dam the river until it floods a meadow).
+// =====================================================================
+const AbilityButton = ({ icon, label, hotkey, readyAt, cooldown, usable, onUse }: {
+    icon: string; label: string; hotkey: string; readyAt: number; cooldown: number; usable: boolean; onUse: () => void;
+}) => {
+    const left = Math.max(0, readyAt - Date.now());
+    const frac = Math.min(1, left / cooldown);
+    return (
+        <div className="flex flex-col items-center gap-0.5">
+            <button
+                className={`relative overflow-hidden w-12 h-12 rounded-full pointer-events-auto touch-none select-none shadow-lg border-2 flex items-center justify-center active:scale-90 transition-transform
+                    ${usable && left === 0 ? 'bg-sky-700/70 border-sky-200/80' : 'bg-slate-800/60 border-white/25'}`}
+                onPointerDown={e => { e.preventDefault(); onUse(); }}
+                aria-label={label}
+            >
+                <span className={`relative text-xl ${usable ? '' : 'opacity-40 grayscale'}`}>{icon}</span>
+                {left > 0 && (
+                    <span
+                        className="absolute inset-0 rounded-full"
+                        style={{ background: `conic-gradient(rgba(0,0,0,0.65) ${frac * 360}deg, transparent 0deg)` }}
+                    />
+                )}
+                <span className="absolute bottom-0 right-1 text-[8px] font-black text-white/70">{hotkey}</span>
+            </button>
+            <span className="text-[8px] font-bold text-white/80 uppercase tracking-wider drop-shadow whitespace-nowrap">
+                {left > 0 ? `${Math.ceil(left / 1000)}s` : label}
+            </span>
+        </div>
+    );
+};
+
+const AbilityButtons = () => {
+    const slapReadyAt = useGameStore(state => state.slapReadyAt);
+    const magpieReadyAt = useGameStore(state => state.magpieReadyAt);
+    const tailSlap = useGameStore(state => state.tailSlap);
+    const callMagpies = useGameStore(state => state.callMagpies);
+    const [, setTick] = useState(0);
+    const [nearWater, setNearWater] = useState(false);
+    const [birds, setBirds] = useState(0);
+
+    // A few times a second: is the water close, how many magpies, and the cooldown sweep
+    useEffect(() => {
+        const id = setInterval(() => {
+            const p = currentWoodchuckPos;
+            let wet = false;
+            for (let i = 0; i < 9 && !wet; i++) {
+                const a = (i / 8) * Math.PI * 2, r = i === 8 ? 0 : 2.5;
+                const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
+                if (calculateTerrainHeight(x, z) < getWaterLevel(x, z)) wet = true;
+            }
+            setNearWater(wet);
+            setBirds(magpieCount());
+            setTick(t => t + 1);
+        }, 200);
+        return () => clearInterval(id);
+    }, []);
+
+    return (
+        <div className="absolute z-50 flex gap-2 pointer-events-none landscape:bottom-12 landscape:left-[96px] portrait:bottom-[136px] portrait:left-3">
+            <AbilityButton icon="💦" label="Tail slap" hotkey="E" readyAt={slapReadyAt} cooldown={SLAP_COOLDOWN} usable={nearWater} onUse={tailSlap} />
+            <AbilityButton icon="🐦" label={birds ? `Magpies ×${birds}` : 'Magpies'} hotkey="Q" readyAt={magpieReadyAt} cooldown={MAGPIE_COOLDOWN} usable={birds > 0} onUse={callMagpies} />
+        </div>
+    );
+};
+
+// =====================================================================
 // Zoom slider (right edge): top = closer, bottom = further. Double-tap resets.
 // =====================================================================
 const SLIDER_PAD = 12; // px of track above/below the thumb's travel
@@ -381,6 +451,7 @@ export const Controls = () => {
 
             <DiveButton />
             <ThrowButton />
+            <AbilityButtons />
 
             <ZoomSlider />
 
@@ -446,6 +517,9 @@ if (typeof window !== 'undefined') {
         } else if (key === 'r' || key === 'e' || key === 'q') {
             const s = useGameStore.getState();
             if (s.isPlacementMode) s.rotatePlacement(key === 'q' ? -Math.PI / 4 : Math.PI / 4);
+            // Outside building: E = Tail Slap, Q = Magpie Call
+            else if (!e.repeat && key === 'e') s.tailSlap();
+            else if (!e.repeat && key === 'q') s.callMagpies();
         } else if (e.key === 'Enter') {
             const s = useGameStore.getState();
             if (s.chucky) {

@@ -4,6 +4,8 @@ import { useGameStore, calculateTerrainHeight, MAP_SIZE } from '../store';
 import { currentWoodchuckPos, liveObjects, playerState, readBodyPosition } from '../globals';
 import { remotePlayers, TEAM_INFO, Team } from '../services/multiplayer';
 import { rainbowTarget } from './Weather';
+import { getWaterLevel, hydrology } from '../services/hydrology';
+import { magpieNests } from './Magpies';
 
 // =====================================================================
 // Minimap (bottom right): the whole map, north up. The land is drawn once per world; trees,
@@ -29,17 +31,19 @@ const drawLand = (): HTMLCanvasElement => {
             const x = -half + (px + 0.5) * m;
             const z = -half + (py + 0.5) * m;
             const h = calculateTerrainHeight(x, z);
+            const level = getWaterLevel(x, z); // Ponds and flooded meadows behind dams too
             let r: number, g: number, b: number;
-            if (h < WATER_LEVEL) {
-                const depth = Math.min(1, (WATER_LEVEL - h) / 4);
+            if (h < level) {
+                const depth = Math.min(1, (level - h) / 4);
                 r = 70 - 40 * depth; g = 150 - 50 * depth; b = 200 - 40 * depth;
+                if (h >= WATER_LEVEL) { r += 25; g += 25; b -= 25; } // Wetland: shallow, greener water
             } else {
                 const t = Math.max(0, Math.min(1, (h - WATER_LEVEL) / 14));
                 // Hill shading from the north-west
                 const slope = calculateTerrainHeight(x - m, z - m) - h;
                 const shade = Math.max(-25, Math.min(25, slope * 12));
                 r = 78 + 60 * t + shade; g = 128 + 40 * t + shade; b = 62 + 30 * t + shade;
-                if (h < WATER_LEVEL + 0.35) { r = 190; g = 175; b = 120; } // Sandy bank
+                if (h < level + 0.35) { r = 190; g = 175; b = 120; } // Sandy bank
             }
             const i = (py * BASE_RES + px) * 4;
             img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
@@ -55,7 +59,7 @@ export const Minimap = () => {
     const [big, setBig] = useState(false);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const landRef = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null);
-    const worldKey = useGameStore(state => `${state.worldSeed}-${state.terrainVersion}`);
+    const worldSeedKey = useGameStore(state => `${state.worldSeed}-${state.terrainVersion}`);
     const size = big ? SIZE.big : SIZE.small;
 
     useEffect(() => {
@@ -72,6 +76,8 @@ export const Minimap = () => {
             if (canvas.width !== px) { canvas.width = px; canvas.height = px; }
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
+            // Redrawn when the world changes, or the river settles at a new height (dams)
+            const worldKey = `${worldSeedKey}-${hydrology.wetlandVersion}`;
             if (!landRef.current || landRef.current.key !== worldKey) {
                 landRef.current = { key: worldKey, canvas: drawLand() };
             }
@@ -115,6 +121,9 @@ export const Minimap = () => {
                 ctx.fillRect(X(st.position[0]) - r, Z(st.position[2]) - r, r * 2, r * 2);
                 ctx.strokeRect(X(st.position[0]) - r, Z(st.position[2]) - r, r * 2, r * 2);
             }
+
+            // Magpie nests: a white ring with a black middle
+            for (const n of magpieNests()) dot(n.x, n.z, big ? 3.4 : 2.6, '#111827', '#ffffff');
 
             // Magic items, wolves and bears
             for (const m of s.magicItems) dot(m.position[0], m.position[2], big ? 3 : 2.2, '#c084fc', '#ffffff');
@@ -172,7 +181,7 @@ export const Minimap = () => {
         };
         raf = requestAnimationFrame(draw);
         return () => cancelAnimationFrame(raf);
-    }, [size, big, worldKey]);
+    }, [size, big, worldSeedKey]);
 
     return (
         <button

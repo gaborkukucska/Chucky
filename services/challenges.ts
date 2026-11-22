@@ -7,11 +7,13 @@
 
 export type ChallengeStat =
     | 'trees' | 'logs' | 'builds' | 'riverBuilds' | 'chased' | 'fruit'
-    | 'throws' | 'combo4' | 'nights' | 'piranhas' | 'magic' | 'rainbows';
+    | 'throws' | 'combo4' | 'nights' | 'piranhas' | 'magic' | 'rainbows'
+    | 'floods' | 'slapHits' | 'swoops';
 
 // Tallies kept only for challenges (the others already exist in the store)
-export type ChallengeTallies = Record<'builds' | 'riverBuilds' | 'fruit' | 'combo4' | 'nights' | 'piranhas' | 'rainbows', number>;
-export const NO_TALLIES: ChallengeTallies = { builds: 0, riverBuilds: 0, fruit: 0, combo4: 0, nights: 0, piranhas: 0, rainbows: 0 };
+export type TallyKey = 'builds' | 'riverBuilds' | 'fruit' | 'combo4' | 'nights' | 'piranhas' | 'rainbows' | 'floods' | 'slapHits' | 'swoops';
+export type ChallengeTallies = Record<TallyKey, number>;
+export const NO_TALLIES: ChallengeTallies = { builds: 0, riverBuilds: 0, fruit: 0, combo4: 0, nights: 0, piranhas: 0, rainbows: 0, floods: 0, slapHits: 0, swoops: 0 };
 
 export interface Challenge {
     id: string;
@@ -29,6 +31,8 @@ export interface ChallengeContext {
     timeOfDay: number;
     canBuild: boolean;     // The first blueprint is unlocked
     hasPiranha: boolean;
+    hasMagpies: boolean;   // A wetland, so magpies nest nearby
+    hasWetland: boolean;
 }
 
 interface Template {
@@ -54,6 +58,9 @@ const TEMPLATES: Template[] = [
     { stat: 'nights', icon: '🌅', weight: 7, text: () => 'Make it through the night', target: () => 1, when: c => c.isNight },
     { stat: 'piranhas', icon: '🐟', weight: 4, text: () => 'Chase off the piranha', target: () => 1, when: c => c.hasPiranha },
     { stat: 'magic', icon: '✨', weight: 3, text: () => 'Find a magic item', target: () => 1, when: c => c.isNight },
+    { stat: 'floods', icon: '🏞️', weight: 7, text: () => 'Dam the river until it floods a meadow', target: () => 1, when: c => c.canBuild && !c.hasWetland },
+    { stat: 'slapHits', icon: '💦', weight: 5, text: n => `Wash away ${plural(n, 'wolf or bear', 'wolves or bears')} with a tail slap`, target: t => 1 + Math.floor(t / 6), when: c => c.isNight },
+    { stat: 'swoops', icon: '🐦', weight: 5, text: n => `Magpies swoop ${plural(n, 'wolf or bear', 'wolves or bears')}`, target: t => 2 + Math.floor(t / 4), when: c => c.hasMagpies && (c.isNight || c.timeOfDay > 0.4) },
 ];
 
 const TEMPLATE_BY_STAT = Object.fromEntries(TEMPLATES.map(t => [t.stat, t])) as Record<ChallengeStat, Template>;

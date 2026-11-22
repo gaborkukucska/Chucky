@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { useGameStore, getRiverWidth, calculateTerrainHeight, MAP_SIZE } from '../store';
 import { TreeData, LogData, LooseLogData, BoulderData, PlacedStructure, Blueprint, BlueprintMud } from '../types';
 import { currentWoodchuckPos, liveObjects, readBodyPosition, readBodyTransform, fx } from '../globals';
+import { getWaterLevel, getFlowFactor } from '../services/hydrology';
 import { multiplayer, logCorrections, outgoingLogPositions } from '../services/multiplayer';
 import { audioService } from '../services/audio';
 
@@ -225,16 +226,17 @@ export const Log = React.memo(({ data }: { data: LogData }) => {
                 }
             }
 
-            const inWater = pos.y < WATER_LEVEL + 0.5;
+            const waterHere = getWaterLevel(pos.x, pos.z);
+            const inWater = pos.y < waterHere + 0.5;
             
             if (isBeingMagnetized) {
                 // Skip water/terrain physics if being magnetized
             } else if (inWater) {
                 // Slower flow for placed logs so they can form a structure
                 const riverW = getRiverWidth(pos.z);
-                const flowSpeed = 40 / Math.max(1, riverW); 
+                const flowSpeed = (40 / Math.max(1, riverW)) * getFlowFactor(pos.x, pos.z); // Ponds are still
                 
-                const surfaceY = WATER_LEVEL + 0.5;
+                const surfaceY = waterHere + 0.5;
                 const displacement = surfaceY - pos.y;
                 const gravity = 20;
                 const mass = 30;
@@ -601,7 +603,7 @@ export const LooseLog = React.memo(({ data }: { data: LooseLogData }) => {
             // fetch them). The old buoyancy code read the body's stale spawn position, so it never
             // ran for logs dropped on land, and pushed river debris up into the sky; sinking is
             // how the game has actually played.
-            const inWater = pos.y < WATER_LEVEL;
+            const inWater = pos.y < getWaterLevel(pos.x, pos.z);
 
             if (isBeingMagnetized) {
                 // Skip water/terrain physics if being magnetized
